@@ -1,0 +1,73 @@
+name: OpenCode AI task tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opencode-ai-task-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security-regression:
+    name: OpenCode AI task security regression tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out automation repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Install pinned actionlint
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+          archive="${RUNNER_TEMP}/actionlint.tar.gz"
+          curl --fail --location --silent --show-error \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+            --output "${archive}"
+          echo "${ACTIONLINT_SHA256}  ${archive}" | sha256sum --check
+          tar -xzf "${archive}" -C "${RUNNER_TEMP}" actionlint
+          echo "${RUNNER_TEMP}" >>"${GITHUB_PATH}"
+
+      - name: Check workflow syntax
+        # actionlint 1.7.12 predates GitHub's documented job.workflow_* fields.
+        # Ignore only that missing type definition; every other rule remains on.
+        run: >-
+          actionlint
+          -ignore 'property "workflow_(repository|sha|ref)" is not defined'
+
+      - name: Check shell syntax
+        run: |
+          set -euo pipefail
+          for script in scripts/opencode-ai-task/*.sh; do
+            bash -n "${script}"
+          done
+
+      - name: Run security regression tests
+        run: |
+          set -uo pipefail
+          failures=0
+          for test_file in scripts/opencode-ai-task/test-*.sh; do
+            echo "::group::${test_file}"
+            if bash "${test_file}"; then
+              echo "::notice::${test_file} passed"
+            else
+              echo "::error::${test_file} failed"
+              failures=$((failures + 1))
+            fi
+            echo "::endgroup::"
+          done
+          if [ "${failures}" -ne 0 ]; then
+            echo "::error::${failures} regression test file(s) failed"
+            exit 1
+          fi

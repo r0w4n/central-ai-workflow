@@ -1,0 +1,33 @@
+# Rudiment uses the same repository-independent caller. Before merging its
+# migration, replace the placeholder with the final reviewed central commit.
+name: OpenCode AI task
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Issue number to check or implement
+        required: true
+        type: string
+      dry_run:
+        description: Run authorisation checks only
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  ai-task:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'ai-task'
+    uses: r0w4n/central-ai-workflow/.github/workflows/opencode-ai-task.yml@<CENTRAL_RELEASE_SHA>
+    with:
+      issue_number: ${{ format('{0}', github.event.issue.number || inputs.issue_number) }}
+      dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+    secrets:
+      OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}

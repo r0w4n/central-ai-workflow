@@ -1,0 +1,491 @@
+name: OpenCode AI task (reusable)
+
+# Four isolated stages: authorise -> implement -> validate -> publish.
+# The caller's repository is always checked out under target/. The trusted
+# automation is separately checked out under automation/ from the exact commit
+# that defines this reusable workflow (job.workflow_sha).
+
+on:
+  workflow_call:
+    inputs:
+      issue_number:
+        description: Numeric issue to implement
+        required: true
+        type: string
+      dry_run:
+        description: Stop after authorisation checks
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      OPENCODE_GO_API_KEY:
+        description: OpenCode Go API credential
+        required: true
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: opencode-ai-task-${{ github.repository }}-${{ inputs.issue_number }}
+  cancel-in-progress: false
+
+env:
+  # Central policy: consuming repositories cannot relax these gates.
+  AUTHORISED_USER: r0w4n
+  REQUIRED_LABEL: ai-task
+  OPENCODE_CLI_VERSION: '2.3.2'
+
+jobs:
+  authorise:
+    name: A. Check authorisation and duplicates
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'issues' &&
+        github.event.action == 'labeled' &&
+        github.event.label.name == 'ai-task' &&
+        github.event.sender.login == 'r0w4n' &&
+        github.event.issue.user.login == 'r0w4n' &&
+        github.event.issue.state == 'open' &&
+        github.event.issue.body != '' &&
+        !github.event.issue.pull_request
+      )
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    outputs:
+      proceed: ${{ steps.decision.outputs.proceed }}
+      reason: ${{ steps.decision.outputs.reason }}
+      branch: ${{ steps.decision.outputs.branch }}
+      base_sha: ${{ github.sha }}
+    steps:
+      - name: Check out trusted central automation
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: automation
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify trusted automation revision
+        env:
+          AUTOMATION_REPO: ${{ github.workspace }}/automation
+          AUTOMATION_SHA: ${{ job.workflow_sha }}
+          WORKFLOW_REF: ${{ job.workflow_ref }}
+        run: bash automation/scripts/opencode-ai-task/verify-trusted-checkout.sh
+
+      - name: Check authorisation and duplicates
+        id: decision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          GATE_EVENT_LABEL: ${{ github.event.label.name }}
+          GATE_ISSUE_STATE: ${{ github.event.issue.state }}
+          GATE_ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+          GATE_SENDER: ${{ github.event.sender.login }}
+          GATE_IS_PULL_REQUEST: ${{ github.event.issue.pull_request != null }}
+          GATE_BODY_NONEMPTY: ${{ github.event.issue.body != '' }}
+        run: |
+          set -euo pipefail
+          [[ "${ISSUE_NUMBER}" =~ ^[0-9]+$ ]] || {
+            echo "::error::issue_number must be numeric"
+            exit 1
+          }
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ISSUE_DATA="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}")"
+            GATE_ISSUE_AUTHOR="$(jq -r '.user.login' <<<"${ISSUE_DATA}")"
+            GATE_ISSUE_STATE="$(jq -r '.state' <<<"${ISSUE_DATA}")"
+            export GATE_SENDER="${{ github.actor }}"
+            GATE_IS_PULL_REQUEST="$(jq -r 'if .pull_request == null then "false" else "true" end' <<<"${ISSUE_DATA}")"
+            GATE_BODY_NONEMPTY="$(jq -r 'if ((.body // "") | length) > 0 then "true" else "false" end' <<<"${ISSUE_DATA}")"
+            export GATE_ISSUE_AUTHOR GATE_ISSUE_STATE GATE_IS_PULL_REQUEST GATE_BODY_NONEMPTY
+            if jq -e --arg label "${REQUIRED_LABEL}" '.labels[] | select(.name == $label)' >/dev/null 2>&1 <<<"${ISSUE_DATA}"; then
+              export GATE_EVENT_LABEL="${REQUIRED_LABEL}"
+            else
+              export GATE_EVENT_LABEL=""
+            fi
+          fi
+
+          export GATE_REQUIRED_AUTHOR="${AUTHORISED_USER}"
+          export GATE_REQUIRED_LABEL="${REQUIRED_LABEL}"
+          GATE_OUT="$(bash automation/scripts/opencode-ai-task/authorise.sh)"
+          echo "${GATE_OUT}"
+          PROCEED="$(sed -n 's/^proceed=\([a-z]*\).*/\1/p' <<<"${GATE_OUT}")"
+          REASON="$(sed -n 's/^proceed=[a-z]* reason=\(.*\)$/\1/p' <<<"${GATE_OUT}")"
+
+          if [ "${PROCEED}" = true ]; then
+            if bash automation/scripts/opencode-ai-task/dedup-check.sh "${ISSUE_NUMBER}"; then
+              :
+            else
+              rc=$?
+              if [ "${rc}" -eq 3 ]; then
+                PROCEED=false
+                REASON="duplicate: active branch and pull request exist"
+              elif [ "${rc}" -eq 2 ]; then
+                exit 1
+              else
+                echo "::error::Duplicate check query failed."
+                exit 1
+              fi
+            fi
+          fi
+
+          {
+            echo "proceed=${PROCEED}"
+            echo "reason=${REASON}"
+            echo "branch=ai/issue-${ISSUE_NUMBER}"
+          } >>"${GITHUB_OUTPUT}"
+
+  implement:
+    name: B. Implement with OpenCode
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: authorise
+    if: needs.authorise.outputs.proceed == 'true' && inputs.dry_run == false
+    permissions:
+      contents: read
+      issues: read
+    env:
+      ISSUE_NUMBER: ${{ inputs.issue_number }}
+      BRANCH: ${{ needs.authorise.outputs.branch }}
+      BASE_SHA: ${{ needs.authorise.outputs.base_sha }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - name: Check out target repository at pinned base
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.authorise.outputs.base_sha }}
+          path: target
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Check out trusted central automation
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: automation
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify and snapshot trusted automation
+        env:
+          AUTOMATION_REPO: ${{ github.workspace }}/automation
+          AUTOMATION_SHA: ${{ job.workflow_sha }}
+          WORKFLOW_REF: ${{ job.workflow_ref }}
+        run: |
+          set -euo pipefail
+          bash automation/scripts/opencode-ai-task/verify-trusted-checkout.sh
+          TRUSTED_SCRIPTS="${RUNNER_TEMP}/trusted-opencode-ai-task"
+          rm -rf "${TRUSTED_SCRIPTS}"
+          cp -R automation/scripts/opencode-ai-task "${TRUSTED_SCRIPTS}"
+          {
+            echo "TRUSTED_SCRIPTS=${TRUSTED_SCRIPTS}"
+            echo "SPEC_FILE=${RUNNER_TEMP}/opencode-issue-spec.md"
+            echo "INSTRUCTIONS_FILE=${RUNNER_TEMP}/opencode-instructions.txt"
+            echo "PR_SUMMARY_FILE=${RUNNER_TEMP}/opencode-pr-summary.md"
+            echo "ISSUE_TITLE_FILE=${RUNNER_TEMP}/opencode-issue-title.txt"
+            echo "ARTIFACT_DIR=${RUNNER_TEMP}/opencode-implementation"
+          } >>"${GITHUB_ENV}"
+
+      - name: Configure target git identity
+        working-directory: target
+        run: |
+          git config user.name "opencode-ai-task[bot]"
+          git config user.email "opencode-ai-task[bot]@users.noreply.github.com"
+
+      - name: Re-check authorisation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GATE_EVENT_LABEL: ${{ github.event.label.name }}
+          GATE_ISSUE_STATE: ${{ github.event.issue.state }}
+          GATE_ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+          GATE_SENDER: ${{ github.event.sender.login }}
+          GATE_IS_PULL_REQUEST: ${{ github.event.issue.pull_request != null }}
+          GATE_BODY_NONEMPTY: ${{ github.event.issue.body != '' }}
+          GATE_REQUIRED_AUTHOR: r0w4n
+          GATE_REQUIRED_LABEL: ai-task
+        run: |
+          set -euo pipefail
+          if [ -z "${GATE_ISSUE_AUTHOR}" ]; then
+            ISSUE_DATA="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}")"
+            GATE_ISSUE_AUTHOR="$(jq -r '.user.login' <<<"${ISSUE_DATA}")"
+            GATE_ISSUE_STATE="$(jq -r '.state' <<<"${ISSUE_DATA}")"
+            export GATE_SENDER="${{ github.actor }}"
+            GATE_IS_PULL_REQUEST="$(jq -r 'if .pull_request == null then "false" else "true" end' <<<"${ISSUE_DATA}")"
+            GATE_BODY_NONEMPTY="$(jq -r 'if ((.body // "") | length) > 0 then "true" else "false" end' <<<"${ISSUE_DATA}")"
+            export GATE_ISSUE_AUTHOR GATE_ISSUE_STATE GATE_IS_PULL_REQUEST GATE_BODY_NONEMPTY
+            if jq -e --arg label "${GATE_REQUIRED_LABEL}" '.labels[] | select(.name == $label)' >/dev/null 2>&1 <<<"${ISSUE_DATA}"; then
+              export GATE_EVENT_LABEL="${GATE_REQUIRED_LABEL}"
+            else
+              export GATE_EVENT_LABEL=""
+            fi
+          fi
+          GATE_OUT="$(bash "${TRUSTED_SCRIPTS}/authorise.sh")"
+          grep -q '^proceed=true' <<<"${GATE_OUT}" || {
+            echo "::error::Authorisation no longer holds."
+            exit 1
+          }
+
+      - name: Fetch issue specification and select model
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh issue view "${ISSUE_NUMBER}" --repo "${GITHUB_REPOSITORY}" --json title --jq '.title' >"${ISSUE_TITLE_FILE}"
+          gh issue view "${ISSUE_NUMBER}" --repo "${GITHUB_REPOSITORY}" \
+            --json title,body --jq '"# " + .title + "\n\n" + (.body // "")' >"${SPEC_FILE}"
+          SELECTION="$(SPEC_FILE="${SPEC_FILE}" MODEL_CONFIG="${GITHUB_WORKSPACE}/automation/config/models.conf" bash "${TRUSTED_SCRIPTS}/select-model.sh")"
+          MODEL="$(sed -n 's/^model=//p' <<<"${SELECTION}")"
+          COMPLEXITY="$(sed -n 's/^complexity=//p' <<<"${SELECTION}")"
+          {
+            echo "MODEL=${MODEL}"
+            echo "COMPLEXITY=${COMPLEXITY}"
+          } >>"${GITHUB_ENV}"
+          rm -f "${PR_SUMMARY_FILE}"
+          echo "Selected complexity ${COMPLEXITY}; approved model ${MODEL}."
+
+      - name: Install pinned OpenCode
+        run: |
+          npm install -g --allow-scripts=@opencode/cli "@opencode/cli@${OPENCODE_CLI_VERSION}"
+          opencode --version
+
+      - name: Implement the task
+        timeout-minutes: 45
+        working-directory: target
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
+        run: |
+          set -euo pipefail
+          cat >"${INSTRUCTIONS_FILE}" <<EOF
+          You are implementing a development task in ${GITHUB_REPOSITORY} for GitHub issue ${ISSUE_NUMBER}.
+
+          The attached issue body is the requirement specification. Work from the current checkout, pinned to a clean base commit.
+
+          Required workflow:
+          1. Create and switch to the branch ${BRANCH}.
+          2. Read and follow the target repository's AGENTS.md and project guidance.
+          3. Implement a minimal, focused change.
+          4. Run the relevant project-specific validation documented by that repository.
+          5. Commit all changes with linear history and a conventional commit referencing issue ${ISSUE_NUMBER}.
+          6. Write the change summary, validation results, and limitations to ${PR_SUMMARY_FILE}.
+
+          Do not push, open or merge pull requests, create worktrees, or modify .github/, .githooks/, or scripts/opencode-ai-task/. Do not change CI, hooks, secrets, security tooling, or repository configuration. Leave a clean committed tree on ${BRANCH}.
+          EOF
+          opencode run --auto --archived --model "${MODEL}" --file "${SPEC_FILE}" "$(cat "${INSTRUCTIONS_FILE}")"
+
+      - name: Export changes as restricted artifact
+        working-directory: target
+        env:
+          AUTOMATION_SHA: ${{ job.workflow_sha }}
+        run: bash "${TRUSTED_SCRIPTS}/export-changes.sh"
+
+      - name: Upload implementation artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: opencode-implementation
+          path: ${{ env.ARTIFACT_DIR }}
+          retention-days: 7
+
+      - name: Collect and redact failure diagnostics
+        id: diagnostics
+        if: failure()
+        working-directory: target
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
+        run: |
+          set -euo pipefail
+          DIAG="${RUNNER_TEMP}/opencode-diagnostics"
+          rm -rf "${DIAG}"
+          mkdir -p "${DIAG}"
+          if [ -d "$HOME/.local/share/opencode/log" ]; then
+            # Runner-created logs have safe names; ls -t only selects newest.
+            # shellcheck disable=SC2012
+            LATEST_LOG="$(ls -t "$HOME/.local/share/opencode/log/"*.log 2>/dev/null | head -n 1 || true)"
+            [ -z "${LATEST_LOG}" ] || tail -n 200 "${LATEST_LOG}" >"${DIAG}/opencode-log-tail.txt"
+          fi
+          git diff --name-only "${BASE_SHA}...HEAD" >"${DIAG}/changed-files.txt" 2>/dev/null || true
+          git status --porcelain >"${DIAG}/status.txt" 2>/dev/null || true
+          bash "${TRUSTED_SCRIPTS}/redact.sh" "${DIAG}"
+
+      - name: Upload failure diagnostics
+        if: failure() && steps.diagnostics.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: opencode-task-issue-${{ inputs.issue_number }}-diagnostics
+          path: ${{ runner.temp }}/opencode-diagnostics/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  validate:
+    name: C. Validate implementation artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [authorise, implement]
+    if: needs.authorise.outputs.proceed == 'true' && inputs.dry_run == false
+    permissions:
+      contents: read
+    env:
+      ISSUE_NUMBER: ${{ inputs.issue_number }}
+      BRANCH: ${{ needs.authorise.outputs.branch }}
+      BASE_SHA: ${{ needs.authorise.outputs.base_sha }}
+    steps:
+      - name: Check out target repository at pinned base
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.authorise.outputs.base_sha }}
+          path: target
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Check out trusted central automation
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: automation
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify trusted automation revision
+        env:
+          AUTOMATION_REPO: ${{ github.workspace }}/automation
+          AUTOMATION_SHA: ${{ job.workflow_sha }}
+          WORKFLOW_REF: ${{ job.workflow_ref }}
+        run: bash automation/scripts/opencode-ai-task/verify-trusted-checkout.sh
+
+      - name: Download implementation artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: opencode-implementation
+          path: ${{ runner.temp }}/opencode-implementation
+
+      - name: Validate and re-export
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/opencode-implementation
+          TRUSTED_REPO: ${{ github.workspace }}/target
+          WORK_DIR: ${{ runner.temp }}/validate-work
+          VALIDATED_OUT: ${{ runner.temp }}/opencode-validated
+          AUTOMATION_SHA: ${{ job.workflow_sha }}
+        run: bash automation/scripts/opencode-ai-task/validate-changes.sh
+
+      - name: Upload validated artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: opencode-validated
+          path: ${{ runner.temp }}/opencode-validated
+          retention-days: 7
+
+  publish:
+    name: D. Push branch and open draft pull request
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [authorise, implement, validate]
+    if: needs.authorise.outputs.proceed == 'true' && inputs.dry_run == false
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      ISSUE_NUMBER: ${{ inputs.issue_number }}
+      BRANCH: ${{ needs.authorise.outputs.branch }}
+      BASE_SHA: ${{ needs.authorise.outputs.base_sha }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - name: Check out target repository at pinned base
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.authorise.outputs.base_sha }}
+          path: target
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Check out trusted central automation
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: automation
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify trusted automation revision
+        env:
+          AUTOMATION_REPO: ${{ github.workspace }}/automation
+          AUTOMATION_SHA: ${{ job.workflow_sha }}
+          WORKFLOW_REF: ${{ job.workflow_ref }}
+        run: bash automation/scripts/opencode-ai-task/verify-trusted-checkout.sh
+
+      - name: Download validated artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: opencode-validated
+          path: ${{ runner.temp }}/opencode-validated
+
+      - name: Apply and revalidate
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/opencode-validated
+          TRUSTED_REPO: ${{ github.workspace }}/target
+          WORK_DIR: ${{ runner.temp }}/publish-work
+          AUTOMATION_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          WORK="$(bash automation/scripts/opencode-ai-task/apply-validated.sh | sed -n 's/^WORK=//p')"
+          echo "PUBLISH_WORK=${WORK}" >>"${GITHUB_ENV}"
+
+      - name: Push branch and open draft pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PUBLISH_WORK: ${{ env.PUBLISH_WORK }}
+          ARTIFACT_DIR: ${{ runner.temp }}/opencode-validated
+          AUTOMATION_SHA: ${{ job.workflow_sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash automation/scripts/opencode-ai-task/publish-pr.sh
+
+  notify:
+    name: Report failure on the issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [authorise, implement, validate, publish]
+    if: always() && failure() && needs.authorise.outputs.proceed == 'true' && github.event_name == 'issues'
+    permissions:
+      issues: write
+      contents: read
+    env:
+      ISSUE_NUMBER: ${{ inputs.issue_number }}
+      BRANCH: ${{ needs.authorise.outputs.branch }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - name: Check out trusted central automation
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: automation
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify trusted automation revision
+        env:
+          AUTOMATION_REPO: ${{ github.workspace }}/automation
+          AUTOMATION_SHA: ${{ job.workflow_sha }}
+          WORKFLOW_REF: ${{ job.workflow_ref }}
+        run: bash automation/scripts/opencode-ai-task/verify-trusted-checkout.sh
+
+      - name: Comment on the issue
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          IMPLEMENT_RESULT: ${{ needs.implement.result }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash automation/scripts/opencode-ai-task/notify-failure.sh
