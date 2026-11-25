@@ -43,7 +43,7 @@ for caller in "$root/examples/generic-opencode-ai-task.yml" "$root/examples/rudi
   fi
 done
 
-if grep -q 'toolchain_profile: rust-wasm-trunk-0.22.1' \
+if grep -q 'toolchain_profile: rudiment-web' \
   "$root/examples/rudiment-opencode-ai-task.yml" &&
   ! grep -q 'toolchain_profile:' "$root/examples/generic-opencode-ai-task.yml"; then
   ok "pinned Rust WASM/Trunk setup is scoped to the Rudiment caller"

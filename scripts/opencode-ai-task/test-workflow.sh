@@ -269,14 +269,23 @@ assert_not_in "$workflow" "target checkout actions are never executed" \
   'uses:.*target/.github/actions'
 
 setup_range="$(step_range 'Provision trusted toolchain')"
+build_range="$(step_range 'Verify target web build')"
 implement_range="$(step_range 'Implement the task')"
 setup_start=${setup_range%% *}
+build_start=${build_range%% *}
 implement_start=${implement_range%% *}
-if [ "${setup_start}" -gt 0 ] && [ "${setup_start}" -lt "${implement_start}" ]; then
-  ok "trusted toolchain is provisioned before OpenCode"
+if [ "${setup_start}" -gt 0 ] && [ "${setup_start}" -lt "${build_start}" ] &&
+  [ "${build_start}" -lt "${implement_start}" ]; then
+  ok "trusted toolchain and target build run before OpenCode"
 else
-  ko "trusted toolchain is provisioned before OpenCode"
+  ko "trusted toolchain and target build run before OpenCode"
 fi
+assert_in "$workflow" "Rudiment build runs in OpenCode target checkout" \
+  'name: Verify target web build'
+assert_in "$workflow" "Rudiment dependencies are installed in preflight" \
+  'npm ci'
+assert_in "$workflow" "Rudiment web build is exercised in preflight" \
+  'npm run build'
 
 # --- Never merge, never force, never deploy -----------------------------------
 assert_not_in "$workflow" "no automatic merge" "gh pr merge"

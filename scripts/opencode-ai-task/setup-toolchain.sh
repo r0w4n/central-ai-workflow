@@ -9,7 +9,7 @@ set -euo pipefail
 profile="${TOOLCHAIN_PROFILE:?TOOLCHAIN_PROFILE is required}"
 
 case "${profile}" in
-  rust-wasm-trunk-0.22.1)
+  rudiment-web)
     trunk_version=0.22.1
     trunk_sha256=2ab8d548fd5ed9cda50906f61fd8654204e7893bd52ebbfd90533862b7d71ee1
     archive="${RUNNER_TEMP:?RUNNER_TEMP is required}/trunk-${trunk_version}.tar.gz"

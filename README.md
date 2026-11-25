@@ -60,9 +60,11 @@ the authoritative merge gates. Project configuration cannot bypass central
 artifact validation or change the approved model allowlist.
 
 Callers that need the pinned Rust WASM/Trunk environment may opt into
-`toolchain_profile: rust-wasm-trunk-0.22.1`. The default is `none`.
-Profiles execute only central scripts from the verified workflow revision; the
-reusable workflow never runs setup actions from the target checkout.
+`toolchain_profile: rudiment-web`. The default is `none`. The profile
+verifies Trunk and the WASM target, then runs `npm ci` and `npm run build`
+in the same `target/` checkout OpenCode receives. Profiles execute only
+central setup scripts from the verified workflow revision; the reusable
+workflow never runs setup actions from the target checkout.
 
 Required caller permissions are `contents: write`, `pull-requests: write`, and
 `issues: write`. The called workflow narrows each job to the minimum it needs;

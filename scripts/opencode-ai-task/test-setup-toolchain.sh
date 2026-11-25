@@ -68,7 +68,7 @@ chmod +x "$fake_bin"/*
 
 output="$tmp/output"
 PATH="$fake_bin:$PATH" RUNNER_TEMP="$runner_temp" GITHUB_PATH="$github_path" \
-  TOOLCHAIN_PROFILE=rust-wasm-trunk-0.22.1 \
+  TOOLCHAIN_PROFILE=rudiment-web \
   bash "$here/setup-toolchain.sh" >"$output"
 
 grep -Fx 'wasm32-unknown-unknown' "$output" >/dev/null

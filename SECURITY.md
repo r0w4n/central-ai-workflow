@@ -21,7 +21,9 @@ write token must never be available to the model process.
 - Optional project toolchains are an allowlist of central scripts copied from
   the verified workflow revision. They run in the read-only implementation job
   before the model secret is placed in a step environment; caller-controlled
-  setup actions are never executed.
+  setup actions are never executed. A profile may run an explicit target build
+  in `target/`, but it does so in that same unprivileged, secret-free
+  preflight.
 - Only numbered binary `format-patch` files, bounded text metadata, and a
   checksum manifest cross the implementation boundary. No repository or Git
   directory is uploaded.

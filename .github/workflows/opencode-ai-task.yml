@@ -269,6 +269,13 @@ jobs:
           TOOLCHAIN_PROFILE: ${{ inputs.toolchain_profile }}
         run: bash "${TRUSTED_SCRIPTS}/setup-toolchain.sh"
 
+      - name: Verify target web build
+        if: inputs.toolchain_profile == 'rudiment-web'
+        working-directory: target
+        run: |
+          npm ci
+          npm run build
+
       - name: Implement the task
         timeout-minutes: 45
         working-directory: target
