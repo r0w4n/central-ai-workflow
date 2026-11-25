@@ -29,5 +29,6 @@ jobs:
     with:
       issue_number: ${{ format('{0}', github.event.issue.number || inputs.issue_number) }}
       dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+      toolchain_profile: rust-wasm-trunk-0.22.1
     secrets:
       OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}

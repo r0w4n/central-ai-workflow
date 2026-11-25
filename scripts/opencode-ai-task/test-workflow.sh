@@ -79,6 +79,8 @@ assert_in "$workflow" "label application sender gate present" \
   ko "authorisation gate script used in authorise and implement jobs"
 assert_in "$workflow" "dry-run dispatch mode preserved" \
   "inputs\.dry_run"
+assert_in "$workflow" "toolchain setup is explicitly opt-in" \
+  "default: none"
 
 # --- Job permissions -----------------------------------------------------------
 pb="$(job_block implement)"; p_start=${pb%% *}; p_end=${pb##* }
@@ -261,6 +263,20 @@ assert_in "$workflow" "model mapping is centrally owned" \
   'automation/config/models.conf'
 assert_not_in "$workflow" "caller repository variables cannot select arbitrary models" \
   'vars\.OPENCODE_AI_TASK_MODEL'
+assert_in "$workflow" "toolchain setup runs from the trusted script snapshot" \
+  'TRUSTED_SCRIPTS\}/setup-toolchain.sh'
+assert_not_in "$workflow" "target checkout actions are never executed" \
+  'uses:.*target/.github/actions'
+
+setup_range="$(step_range 'Provision trusted toolchain')"
+implement_range="$(step_range 'Implement the task')"
+setup_start=${setup_range%% *}
+implement_start=${implement_range%% *}
+if [ "${setup_start}" -gt 0 ] && [ "${setup_start}" -lt "${implement_start}" ]; then
+  ok "trusted toolchain is provisioned before OpenCode"
+else
+  ko "trusted toolchain is provisioned before OpenCode"
+fi
 
 # --- Never merge, never force, never deploy -----------------------------------
 assert_not_in "$workflow" "no automatic merge" "gh pr merge"
@@ -276,7 +292,7 @@ assert_in "$here/validate-changes.sh" \
 assert_not_in "$workflow" "no deploy actions" "deploy-pages"
 
 # --- Gate scripts executable ---------------------------------------------------
-for s in authorise.sh dedup-check.sh export-changes.sh validate-changes.sh apply-validated.sh redact.sh select-model.sh verify-trusted-checkout.sh; do
+for s in authorise.sh dedup-check.sh export-changes.sh validate-changes.sh apply-validated.sh redact.sh select-model.sh setup-toolchain.sh verify-trusted-checkout.sh; do
   if [ -x "$here/$s" ]; then ok "gate script executable: $s"; else ko "gate script executable: $s"; fi
 done
 
