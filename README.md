@@ -24,8 +24,9 @@ authorise (read) -> implement (read + model secret) -> validate (read)
 2. **Implement** checks out the caller under `target/` and the central workflow
    under `automation/`. It proves the central checkout equals
    `job.workflow_sha`, snapshots the scripts before the agent starts, selects
-   an approved model, and gives the agent only `OPENCODE_API_KEY`. The output is
-   a restricted patch artifact—never the working tree or `.git` directory.
+   an approved model, optionally provisions a centrally managed toolchain, and
+   gives the agent only `OPENCODE_API_KEY`. The output is a restricted patch
+   artifact—never the working tree or `.git` directory.
 3. **Validate** starts on a fresh runner, verifies checksums and metadata,
    applies patches with hooks and credential helpers disabled, and rejects
    protected paths, traversal, symlinks, submodules, malformed patches, merge
@@ -57,6 +58,13 @@ instructions, and PR quality gates. The agent reads those instructions and runs
 the relevant QA before committing; normal target-repository PR workflows remain
 the authoritative merge gates. Project configuration cannot bypass central
 artifact validation or change the approved model allowlist.
+
+Callers that need the pinned Rust WASM/Trunk environment may opt into
+`toolchain_profile: rudiment-web`. The default is `none`. The profile
+verifies Trunk and the WASM target, then runs `npm ci` and `npm run build`
+in the same `target/` checkout OpenCode receives. Profiles execute only
+central setup scripts from the verified workflow revision; the reusable
+workflow never runs setup actions from the target checkout.
 
 Required caller permissions are `contents: write`, `pull-requests: write`, and
 `issues: write`. The called workflow narrows each job to the minimum it needs;

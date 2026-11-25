@@ -17,6 +17,11 @@ on:
         required: false
         default: false
         type: boolean
+      toolchain_profile:
+        description: Optional centrally managed toolchain profile
+        required: false
+        default: none
+        type: string
     secrets:
       OPENCODE_GO_API_KEY:
         description: OpenCode Go API credential
@@ -256,6 +261,20 @@ jobs:
         run: |
           npm install -g --allow-scripts=@opencode/cli "@opencode/cli@${OPENCODE_CLI_VERSION}"
           opencode --version
+
+      - name: Provision trusted toolchain
+        if: inputs.toolchain_profile != 'none'
+        working-directory: target
+        env:
+          TOOLCHAIN_PROFILE: ${{ inputs.toolchain_profile }}
+        run: bash "${TRUSTED_SCRIPTS}/setup-toolchain.sh"
+
+      - name: Verify target web build
+        if: inputs.toolchain_profile == 'rudiment-web'
+        working-directory: target
+        run: |
+          npm ci
+          npm run build
 
       - name: Implement the task
         timeout-minutes: 45
