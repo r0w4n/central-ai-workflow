@@ -238,7 +238,8 @@ jobs:
         run: |
           set -euo pipefail
           gh issue view "${ISSUE_NUMBER}" --repo "${GITHUB_REPOSITORY}" --json title --jq '.title' >"${ISSUE_TITLE_FILE}"
-          gh issue view "${ISSUE_NUMBER}" --repo "${GITHUB_REPOSITORY}" --json body --jq '.body // ""' >"${SPEC_FILE}"
+          gh issue view "${ISSUE_NUMBER}" --repo "${GITHUB_REPOSITORY}" \
+            --json title,body --jq '"# " + .title + "\n\n" + (.body // "")' >"${SPEC_FILE}"
           SELECTION="$(SPEC_FILE="${SPEC_FILE}" MODEL_CONFIG="${GITHUB_WORKSPACE}/automation/config/models.conf" bash "${TRUSTED_SCRIPTS}/select-model.sh")"
           MODEL="$(sed -n 's/^model=//p' <<<"${SELECTION}")"
           COMPLEXITY="$(sed -n 's/^complexity=//p' <<<"${SELECTION}")"
