@@ -100,11 +100,12 @@ jobs:
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             ISSUE_DATA="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}")"
-            export GATE_ISSUE_AUTHOR="$(jq -r '.user.login' <<<"${ISSUE_DATA}")"
-            export GATE_ISSUE_STATE="$(jq -r '.state' <<<"${ISSUE_DATA}")"
+            GATE_ISSUE_AUTHOR="$(jq -r '.user.login' <<<"${ISSUE_DATA}")"
+            GATE_ISSUE_STATE="$(jq -r '.state' <<<"${ISSUE_DATA}")"
             export GATE_SENDER="${{ github.actor }}"
-            export GATE_IS_PULL_REQUEST="$(jq -r 'if .pull_request == null then "false" else "true" end' <<<"${ISSUE_DATA}")"
-            export GATE_BODY_NONEMPTY="$(jq -r 'if ((.body // "") | length) > 0 then "true" else "false" end' <<<"${ISSUE_DATA}")"
+            GATE_IS_PULL_REQUEST="$(jq -r 'if .pull_request == null then "false" else "true" end' <<<"${ISSUE_DATA}")"
+            GATE_BODY_NONEMPTY="$(jq -r 'if ((.body // "") | length) > 0 then "true" else "false" end' <<<"${ISSUE_DATA}")"
+            export GATE_ISSUE_AUTHOR GATE_ISSUE_STATE GATE_IS_PULL_REQUEST GATE_BODY_NONEMPTY
             if jq -e --arg label "${REQUIRED_LABEL}" '.labels[] | select(.name == $label)' >/dev/null 2>&1 <<<"${ISSUE_DATA}"; then
               export GATE_EVENT_LABEL="${REQUIRED_LABEL}"
             else
@@ -215,11 +216,12 @@ jobs:
           set -euo pipefail
           if [ -z "${GATE_ISSUE_AUTHOR}" ]; then
             ISSUE_DATA="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}")"
-            export GATE_ISSUE_AUTHOR="$(jq -r '.user.login' <<<"${ISSUE_DATA}")"
-            export GATE_ISSUE_STATE="$(jq -r '.state' <<<"${ISSUE_DATA}")"
+            GATE_ISSUE_AUTHOR="$(jq -r '.user.login' <<<"${ISSUE_DATA}")"
+            GATE_ISSUE_STATE="$(jq -r '.state' <<<"${ISSUE_DATA}")"
             export GATE_SENDER="${{ github.actor }}"
-            export GATE_IS_PULL_REQUEST="$(jq -r 'if .pull_request == null then "false" else "true" end' <<<"${ISSUE_DATA}")"
-            export GATE_BODY_NONEMPTY="$(jq -r 'if ((.body // "") | length) > 0 then "true" else "false" end' <<<"${ISSUE_DATA}")"
+            GATE_IS_PULL_REQUEST="$(jq -r 'if .pull_request == null then "false" else "true" end' <<<"${ISSUE_DATA}")"
+            GATE_BODY_NONEMPTY="$(jq -r 'if ((.body // "") | length) > 0 then "true" else "false" end' <<<"${ISSUE_DATA}")"
+            export GATE_ISSUE_AUTHOR GATE_ISSUE_STATE GATE_IS_PULL_REQUEST GATE_BODY_NONEMPTY
             if jq -e --arg label "${GATE_REQUIRED_LABEL}" '.labels[] | select(.name == $label)' >/dev/null 2>&1 <<<"${ISSUE_DATA}"; then
               export GATE_EVENT_LABEL="${GATE_REQUIRED_LABEL}"
             else
@@ -304,6 +306,8 @@ jobs:
           rm -rf "${DIAG}"
           mkdir -p "${DIAG}"
           if [ -d "$HOME/.local/share/opencode/log" ]; then
+            # shellcheck disable=SC2012 -- runner-created logs have safe names;
+            # ls -t is used only to select the newest diagnostic file.
             LATEST_LOG="$(ls -t "$HOME/.local/share/opencode/log/"*.log 2>/dev/null | head -n 1 || true)"
             [ -z "${LATEST_LOG}" ] || tail -n 200 "${LATEST_LOG}" >"${DIAG}/opencode-log-tail.txt"
           fi
