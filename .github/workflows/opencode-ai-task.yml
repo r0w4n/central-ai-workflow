@@ -306,8 +306,8 @@ jobs:
           rm -rf "${DIAG}"
           mkdir -p "${DIAG}"
           if [ -d "$HOME/.local/share/opencode/log" ]; then
-            # shellcheck disable=SC2012 -- runner-created logs have safe names;
-            # ls -t is used only to select the newest diagnostic file.
+            # Runner-created logs have safe names; ls -t only selects newest.
+            # shellcheck disable=SC2012
             LATEST_LOG="$(ls -t "$HOME/.local/share/opencode/log/"*.log 2>/dev/null | head -n 1 || true)"
             [ -z "${LATEST_LOG}" ] || tail -n 200 "${LATEST_LOG}" >"${DIAG}/opencode-log-tail.txt"
           fi
