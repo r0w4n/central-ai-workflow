@@ -46,10 +46,10 @@ if exercise_repo frontend src/components/widget.ts; then ok "frontend-style repo
 if exercise_repo backend service/internal/worker.go; then ok "backend-style repository validates"; else ko "backend-style repository validates"; fi
 
 workflow="$root/.github/workflows/opencode-ai-task.yml"
-if ! grep -q 'Rudiment repository' "$workflow" && grep -q 'working-directory: target' "$workflow"; then
-  ok "workflow is repository-independent and runs the agent in target checkout"
+if ! grep -q 'Rudiment repository' "$workflow" && grep -q 'working-directory: \${{ github.workspace }}' "$workflow"; then
+  ok "workflow is repository-independent and pins the agent to the workspace checkout"
 else
-  ko "workflow is repository-independent and runs the agent in target checkout"
+  ko "workflow is repository-independent and pins the agent to the workspace checkout"
 fi
 if grep -q 'repository: \${{ job.workflow_repository }}' "$workflow" && grep -q 'path: automation' "$workflow"; then
   ok "central automation uses a separate trusted checkout"

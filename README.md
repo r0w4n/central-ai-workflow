@@ -21,12 +21,16 @@ authorise (read) -> implement (read + model secret) -> validate (read)
 1. **Authorise** checks the issue author, label, labeler, open state, non-empty
    body, non-PR status, and duplicate branch/PR state. The central default
    policy requires `r0w4n` and `ai-task`; callers cannot relax it.
-2. **Implement** checks out the caller under `target/` and the central workflow
-   under `automation/`. It proves the central checkout equals
-   `job.workflow_sha`, snapshots the scripts before the agent starts, selects
-   an approved model, optionally provisions a centrally managed toolchain, and
-   gives the agent only `OPENCODE_API_KEY`. The output is a restricted patch
-   artifact—never the working tree or `.git` directory.
+2. **Implement** checks out the caller at the runner workspace root, so
+   `$GITHUB_WORKSPACE` is the Git repository root, and the central workflow
+   under a temporary `automation/` directory that is removed before the agent
+   starts. It proves the central checkout equals `job.workflow_sha`, snapshots
+   the scripts before the agent starts, selects an approved model, optionally
+   provisions a centrally managed toolchain with dependency caching, and
+   verifies the environment (working directory, Git checkout, and required
+   tool versions) in a trusted preflight before giving the agent only
+   `OPENCODE_API_KEY`. The output is a restricted patch artifact—never the
+   working tree or `.git` directory.
 3. **Validate** starts on a fresh runner, verifies checksums and metadata,
    applies patches with hooks and credential helpers disabled, and rejects
    protected paths, traversal, symlinks, submodules, malformed patches, merge
@@ -60,15 +64,41 @@ the authoritative merge gates. Project configuration cannot bypass central
 artifact validation or change the approved model allowlist.
 
 Callers that need the pinned Rust WASM/Trunk environment may opt into
-`toolchain_profile: rudiment-web`. The default is `none`. The profile
-verifies Trunk and the WASM target, then runs `npm ci` and `npm run build`
-in the same `target/` checkout OpenCode receives. Profiles execute only
-central setup scripts from the verified workflow revision; the reusable
-workflow never runs setup actions from the target checkout.
+`toolchain_profile: rudiment-web`. The default is `none`. The profile installs
+the project-pinned Rust toolchain (honouring `rust-toolchain.toml` when
+present), the `wasm32-unknown-unknown` target, and pinned Trunk, then caches
+Cargo, npm, and build outputs and verifies `npm ci` and `npm run build` in the
+same workspace checkout OpenCode receives. Profiles execute only central setup
+scripts from the verified workflow revision; the reusable workflow never runs
+setup actions from the target checkout.
+
+Before the agent starts, the implement job runs a trusted preflight that fails
+closed when `git rev-parse --show-toplevel` does not resolve to
+`$GITHUB_WORKSPACE`, or when a required tool (Git, Node, npm, OpenCode, or the
+profile's Rust/Trunk tooling) is missing. The authorise job preflights the
+repository's Actions settings that gate pull request publication.
 
 Required caller permissions are `contents: write`, `pull-requests: write`, and
 `issues: write`. The called workflow narrows each job to the minimum it needs;
 GitHub does not allow a called workflow to elevate beyond its caller.
+
+### Repository settings that workflow YAML cannot change
+
+Two manual repository settings must be enabled; declaring
+`permissions:` in the caller cannot replace them:
+
+1. **Read and write workflow token permissions.** Settings > Actions >
+   General > Workflow permissions > *Read and write permissions*.
+2. **Allow GitHub Actions to create and approve pull requests.** Settings >
+   Actions > General > Workflow permissions > enable the checkbox. Without it,
+   the publication stage fails with `GitHub Actions is not permitted to create
+   or approve pull requests` even though the branch push succeeds.
+
+The authorise stage queries
+`GET /repos/{owner}/{repo}/actions/permissions/workflow` and fails with these
+remediation instructions before implementation begins; if the API cannot
+verify the settings with the available token, it warns so the settings can be
+checked manually.
 
 ## Complexity and model selection
 
@@ -111,7 +141,10 @@ Required:
 - Actions must be enabled and permitted to call this public reusable workflow.
 - Add the `OPENCODE_GO_API_KEY` repository secret.
 - Set Actions workflow permissions to read/write and enable GitHub Actions to
-  create pull requests.
+  create pull requests (Settings > Actions > General > Workflow permissions).
+  These are manual repository settings; workflow YAML cannot enable them, and
+  the authorisation preflight fails with remediation instructions when the API
+  can detect they are missing.
 - Protect the default branch and require the target repository's own QA checks.
 - Pin the caller to a reviewed full central commit SHA.
 
