@@ -22,6 +22,9 @@ stubbed GitHub commands, and dummy credentials.
 Do not move validation into the caller repository, execute an artifact-provided
 script, pass target Git metadata between jobs, expose GitHub credentials to the
 model step, or add a model identifier without validating and allowlisting it.
+Project-specific setup, dependency caches, and builds belong in the consumer's
+optional `.github/actions/setup-ai-task` action and pull-request workflows, not
+in these trusted scripts.
 
 See the repository [README](../../README.md), [security design](../../SECURITY.md),
 and [testing guide](../../TESTING.md).

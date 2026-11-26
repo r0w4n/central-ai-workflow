@@ -18,15 +18,18 @@ write token must never be available to the model process.
   `r0w4n` author/labeler policy and `ai-task` label are centrally owned.
 - OpenCode receives `OPENCODE_API_KEY`, but no `GH_TOKEN`, `GITHUB_TOKEN`,
   persisted checkout credential, or repository write permission.
-- Optional project toolchains are an allowlist of central scripts copied from
-  the verified workflow revision. They run in the read-only implementation job
-  before the model secret is placed in a step environment; caller-controlled
-  setup actions are never executed. A profile may run an explicit target build
-  in the agent's workspace checkout, but it does so in that same unprivileged,
-  secret-free preflight.
-- A trusted preflight runs after the toolchain build and before the model: it
+- An optional consumer-owned `.github/actions/setup-ai-task` action runs only
+  in the read-only implementation job, before the model credential is placed
+  in a step environment. Step-scoped variables are not treated as isolation:
+  setup can leave processes running, alter `PATH`, replace tools, or modify the
+  checkout before later steps. The whole remaining runner is therefore
+  considered consumer-controlled. It never receives publication credentials
+  or repository write permission; fresh validation and publication jobs never
+  execute consumer setup. The reviewed base repository is part of the trust
+  base for the model API key already required to run project tooling.
+- A trusted preflight runs after optional consumer setup and before the model: it
   fails closed unless `git rev-parse --show-toplevel` resolves to
-  `$GITHUB_WORKSPACE` and every required tool is present. The automation
+  `$GITHUB_WORKSPACE` and every central orchestration tool is present. The automation
   checkout is removed from the workspace before the agent starts, so the agent
   sees a single clean repository.
 - Only numbered binary `format-patch` files, bounded text metadata, and a
@@ -55,7 +58,8 @@ write token must never be available to the model process.
 ## Central versus project policy
 
 Projects control their code, `AGENTS.md`, issue specifications, and QA
-workflows. They do not control protected-path validation, authorisation,
+workflows, including their optional environment setup, dependency caches, and
+build commands. They do not control protected-path validation, authorisation,
 credential isolation, model allowlisting, artifact validation, publication, or
 central version verification. Changes to those boundaries require review in
 this repository and a new immutable caller pin.

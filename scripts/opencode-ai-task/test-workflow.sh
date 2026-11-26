@@ -79,8 +79,10 @@ assert_in "$workflow" "label application sender gate present" \
   ko "authorisation gate script used in authorise and implement jobs"
 assert_in "$workflow" "dry-run dispatch mode preserved" \
   "inputs\.dry_run"
-assert_in "$workflow" "toolchain setup is explicitly opt-in" \
-  "default: none"
+assert_in "$workflow" "consumer setup interface is declared" \
+  "^[[:space:]]+setup:"
+assert_in "$workflow" "consumer setup is explicitly opt-in" \
+  "if: inputs\.setup"
 
 # --- Job permissions -----------------------------------------------------------
 tb="$(job_block authorise)"; t_start=${tb%% *}; t_end=${tb##* }
@@ -308,29 +310,36 @@ assert_in "$workflow" "model mapping is centrally owned" \
   'automation/config/models.conf'
 assert_not_in "$workflow" "caller repository variables cannot select arbitrary models" \
   'vars\.OPENCODE_AI_TASK_MODEL'
-assert_in "$workflow" "toolchain setup runs from the trusted script snapshot" \
-  'TRUSTED_SCRIPTS\}/setup-toolchain.sh'
-assert_not_in "$workflow" "target checkout actions are never executed" \
-  'uses:.*target/.github/actions'
+assert_in "$workflow" "generic setup uses the caller workspace local action" \
+  'uses: \./\.github/actions/setup-ai-task'
 
-setup_range="$(step_range 'Provision trusted toolchain')"
-build_range="$(step_range 'Verify target web build')"
+setup_range="$(step_range 'Set up consumer environment')"
 implement_range="$(step_range 'Implement the task')"
 setup_start=${setup_range%% *}
-build_start=${build_range%% *}
 implement_start=${implement_range%% *}
-if [ "${setup_start}" -gt 0 ] && [ "${setup_start}" -lt "${build_start}" ] &&
-  [ "${build_start}" -lt "${implement_start}" ]; then
-  ok "trusted toolchain and target build run before OpenCode"
+if [ "${setup_start}" -gt 0 ] && [ "${setup_start}" -lt "${implement_start}" ]; then
+  ok "optional consumer setup runs before OpenCode"
 else
-  ko "trusted toolchain and target build run before OpenCode"
+  ko "optional consumer setup runs before OpenCode"
 fi
-assert_in "$workflow" "Rudiment build runs in OpenCode target checkout" \
-  'name: Verify target web build'
-assert_in "$workflow" "Rudiment dependencies are installed in preflight" \
-  'npm ci'
-assert_in "$workflow" "Rudiment web build is exercised in preflight" \
-  'npm run build'
+for privileged_job in validate publish; do
+  privileged_range="$(job_block "${privileged_job}")"
+  privileged_start=${privileged_range%% *}
+  privileged_end=${privileged_range##* }
+  if sed -n "${privileged_start},${privileged_end}p" "$workflow" | grep -q 'setup-ai-task'; then
+    ko "${privileged_job} never executes consumer setup"
+  else
+    ok "${privileged_job} never executes consumer setup"
+  fi
+done
+if grep -qiE 'rudiment|wasm32|trunk|cargo|toolchain_profile|npm ci|npm run build' \
+  "$workflow" "$here/preflight.sh"; then
+  ko "central production automation contains no consumer-specific toolchain or build logic"
+else
+  ok "central production automation contains no consumer-specific toolchain or build logic"
+fi
+assert_in "$root/SECURITY.md" "same-runner setup risk is documented" \
+  'leave processes running'
 
 # --- Never merge, never force, never deploy -----------------------------------
 assert_not_in "$workflow" "no automatic merge" "gh pr merge"
@@ -349,7 +358,7 @@ assert_in "$here/validate-changes.sh" \
 assert_not_in "$workflow" "no deploy actions" "deploy-pages"
 
 # --- Gate scripts executable ---------------------------------------------------
-for s in authorise.sh dedup-check.sh export-changes.sh validate-changes.sh apply-validated.sh redact.sh select-model.sh setup-toolchain.sh verify-trusted-checkout.sh; do
+for s in authorise.sh dedup-check.sh export-changes.sh validate-changes.sh apply-validated.sh redact.sh select-model.sh verify-trusted-checkout.sh; do
   if [ -x "$here/$s" ]; then ok "gate script executable: $s"; else ko "gate script executable: $s"; fi
 done
 
