@@ -340,6 +340,8 @@ else
 fi
 assert_in "$root/SECURITY.md" "same-runner setup risk is documented" \
   'leave processes running'
+assert_in "$root/SECURITY.md" "post-agent cache poisoning risk is documented" \
+  'post-job saves of agent-modifiable paths'
 
 # --- Never merge, never force, never deploy -----------------------------------
 assert_not_in "$workflow" "no automatic merge" "gh pr merge"

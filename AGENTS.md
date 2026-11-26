@@ -32,7 +32,9 @@ Apply this architectural test before adding functionality:
    validation and publication, and manual merge approval.
 5. Treat consumer setup and the agent workspace as untrusted for later steps on
    the same runner. Never expose publication credentials there or rely on
-   step-scoped environment variables as an isolation boundary.
+   step-scoped environment variables as an isolation boundary. Consumer cache
+   actions must not save agent-modifiable paths in post-job hooks under a
+   trusted/default-branch cache scope.
 6. Avoid unnecessary infrastructure, persistent runners, orchestration layers,
    and custom frameworks. Prefer straightforward GitHub Actions features.
 7. Prefer established GitHub Actions mechanisms for caches, artifacts, and

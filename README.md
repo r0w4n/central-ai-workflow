@@ -73,6 +73,12 @@ and timing diagnostics. It should not perform a mandatory full application
 build: project validation remains the agent's responsibility and the target
 repository's pull-request checks remain the authoritative merge gates.
 
+Setup may restore reviewed caches, but it must not schedule post-job saves of
+paths the later agent can modify under a trusted/default-branch cache scope.
+Disable saves for the AI job or save immutable dependency data before the local
+action returns. Never cache credentials, model sessions, issue data, or agent
+state.
+
 The setup action comes from the consumer's pinned base revision and runs only
 in the implementation job. After it runs, the rest of that runner must be
 treated as consumer-controlled: a process can persist, alter tools or modify

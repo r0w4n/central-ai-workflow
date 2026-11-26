@@ -26,7 +26,10 @@ write token must never be available to the model process.
   considered consumer-controlled. It never receives publication credentials
   or repository write permission; fresh validation and publication jobs never
   execute consumer setup. The reviewed base repository is part of the trust
-  base for the model API key already required to run project tooling.
+  base for the model API key already required to run project tooling. Consumer
+  cache actions must also disable post-job saves of agent-modifiable paths (or
+  save before setup returns), preventing an implementation run on the default
+  ref from poisoning caches later restored by trusted jobs.
 - A trusted preflight runs after optional consumer setup and before the model: it
   fails closed unless `git rev-parse --show-toplevel` resolves to
   `$GITHUB_WORKSPACE` and every central orchestration tool is present. The automation
