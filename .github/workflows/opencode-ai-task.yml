@@ -1,7 +1,8 @@
 name: OpenCode AI task (reusable)
 
 # Four isolated stages: authorise -> implement -> validate -> publish.
-# The caller's repository is always checked out under target/. The trusted
+# The implement job checks the caller's repository out at the runner workspace
+# root ($GITHUB_WORKSPACE); other jobs check it out under target/. The trusted
 # automation is separately checked out under automation/ from the exact commit
 # that defines this reusable workflow (job.workflow_sha).
 
