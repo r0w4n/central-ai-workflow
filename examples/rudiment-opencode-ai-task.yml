@@ -30,5 +30,11 @@ jobs:
       issue_number: ${{ format('{0}', github.event.issue.number || inputs.issue_number) }}
       dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
       toolchain_profile: rudiment-web
+      draft: false
     secrets:
       OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
+      # Optional GitHub App publication credentials. Pull requests created
+      # with the resulting App token start the repository's PR checks
+      # automatically instead of being held for approval.
+      APP_ID: ${{ secrets.APP_ID }}
+      APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}

@@ -72,6 +72,18 @@ same workspace checkout OpenCode receives. Profiles execute only central setup
 scripts from the verified workflow revision; the reusable workflow never runs
 setup actions from the target checkout.
 
+Publication defaults to a **draft** pull request. Callers may pass
+`draft: false` to publish the pull request ready for review; merging always
+remains a manual action. When callers also provide the optional `APP_ID` and
+`APP_PRIVATE_KEY` secrets for a GitHub App installed on the target repository
+(with contents: write and pull requests: write), the publish stage mints a
+short-lived App installation token for the branch push and pull request
+creation. Pull requests created with an App token trigger the target
+repository's own `pull_request` workflows automatically, without the
+held-for-approval gate that GitHub applies to `GITHUB_TOKEN`-created pull
+requests. Without App credentials the reusable workflow falls back to
+`GITHUB_TOKEN` and its documented manual repository settings.
+
 Before the agent starts, the implement job runs a trusted preflight that fails
 closed when `git rev-parse --show-toplevel` does not resolve to
 `$GITHUB_WORKSPACE`, or when a required tool (Git, Node, npm, OpenCode, or the

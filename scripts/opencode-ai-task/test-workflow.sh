@@ -337,7 +337,10 @@ assert_not_in "$workflow" "no automatic merge" "gh pr merge"
 assert_not_in "$workflow" "no marking PR ready for review" "gh pr ready"
 assert_not_in "$workflow" "no admin bypass flags" --admin
 assert_not_in "$workflow" "no force pushes" "git push[^|]*--force[^v]"
-assert_in "$here/publish-pr.sh" "pull requests are drafts" "gh pr create --draft"
+assert_in "$here/publish-pr.sh" "pull requests are drafts by default" "DRAFT_FLAG=\(--draft\)"
+assert_in "$here/publish-pr.sh" "ready-for-review PRs are opt-in via PR_DRAFT" 'PR_DRAFT'
+assert_in "$workflow" "draft input defaults to draft" "default: true"
+assert_in "$workflow" "optional GitHub App publication token" "create-github-app-token"
 assert_not_in "$workflow" "no pushes to the default branch" \
   'git push[^|]*"[[:space:]]*"?\$\{DEFAULT_BRANCH\}'
 assert_in "$here/validate-changes.sh" \
