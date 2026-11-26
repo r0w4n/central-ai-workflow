@@ -34,12 +34,13 @@ on:
         required: true
       APP_ID:
         description: |-
-          Optional GitHub App ID for publication. When both APP_ID and
-          APP_PRIVATE_KEY are provided, the publish stage mints an App
-          installation token instead of using GITHUB_TOKEN. Pull requests
-          created with an App token trigger the target repository's own
-          pull_request workflows automatically, without the held-for-approval
-          gate that applies to GITHUB_TOKEN-created pull requests.
+          Optional GitHub App client ID for publication. When both
+          APP_ID and APP_PRIVATE_KEY are provided, the publish stage
+          mints an App installation token instead of using GITHUB_TOKEN.
+          Pull requests created with an App token trigger the target
+          repository's own pull_request workflows automatically, without the
+          held-for-approval gate that applies to GITHUB_TOKEN-created pull
+          requests.
         required: false
       APP_PRIVATE_KEY:
         description: Private key (PKCS#8 or PEM) of the optional GitHub App
@@ -548,7 +549,6 @@ jobs:
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-contents: write
           permission-pull-requests: write

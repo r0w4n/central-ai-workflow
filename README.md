@@ -74,9 +74,10 @@ setup actions from the target checkout.
 
 Publication defaults to a **draft** pull request. Callers may pass
 `draft: false` to publish the pull request ready for review; merging always
-remains a manual action. When callers also provide the optional `APP_ID` and
-`APP_PRIVATE_KEY` secrets for a GitHub App installed on the target repository
-(with contents: write and pull requests: write), the publish stage mints a
+remains a manual action. When callers also provide the optional
+`APP_ID` and `APP_PRIVATE_KEY` secrets for a GitHub App installed on
+the target repository (with contents: write and pull requests: write), the
+publish stage mints a
 short-lived App installation token for the branch push and pull request
 creation. Pull requests created with an App token trigger the target
 repository's own `pull_request` workflows automatically, without the
