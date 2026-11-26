@@ -78,6 +78,24 @@ scenario="warn and continue: response lacks the permission fields"
 make_gh '{}'
 REPOSITORY=owner/repo run_check 0
 
+scenario="pass: read-only token settings are not gated with App credentials"
+make_gh '{"default_workflow_permissions":"read","can_approve_pull_request_reviews":true}'
+USING_APP_TOKEN=true REPOSITORY=owner/repo run_check 0
+if grep -q 'does not gate' <<<"${OUT_LAST:-}"; then
+  ok "$scenario (App-token notice)"
+else
+  ko "$scenario (missing App-token notice)"
+fi
+
+scenario="pass: disabled Actions-created pull requests are not gated with App credentials"
+make_gh '{"default_workflow_permissions":"write","can_approve_pull_request_reviews":false}'
+USING_APP_TOKEN=true REPOSITORY=owner/repo run_check 0
+if grep -q 'GitHub App credentials' <<<"${OUT_LAST:-}"; then
+  ok "$scenario (App-token notice)"
+else
+  ko "$scenario (missing App-token notice)"
+fi
+
 echo
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

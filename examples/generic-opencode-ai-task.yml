@@ -27,5 +27,14 @@ jobs:
     with:
       issue_number: ${{ format('{0}', github.event.issue.number || inputs.issue_number) }}
       dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+      # draft defaults to true. Set false to publish ready-for-review PRs.
+      # draft: false
     secrets:
       OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
+      # Optional. Providing both mints a GitHub App installation token for
+      # publication; pull requests created with an App token trigger the
+      # repository's pull_request workflows without held-for-approval gates.
+      # The App must be installed on this repository with contents: write and
+      # pull requests: write.
+      # APP_ID: ${{ secrets.APP_ID }}
+      # APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}

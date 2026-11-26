@@ -23,10 +23,28 @@ on:
         required: false
         default: none
         type: string
+      draft:
+        description: Open the pull request as a draft for review
+        required: false
+        default: true
+        type: boolean
     secrets:
       OPENCODE_GO_API_KEY:
         description: OpenCode Go API credential
         required: true
+      APP_ID:
+        description: |-
+          Optional GitHub App client ID for publication. When both
+          APP_ID and APP_PRIVATE_KEY are provided, the publish stage
+          mints an App installation token instead of using GITHUB_TOKEN.
+          Pull requests created with an App token trigger the target
+          repository's own pull_request workflows automatically, without the
+          held-for-approval gate that applies to GITHUB_TOKEN-created pull
+          requests.
+        required: false
+      APP_PRIVATE_KEY:
+        description: Private key (PKCS#8 or PEM) of the optional GitHub App
+        required: false
 
 # Required caller grants. GitHub caps a called workflow at the caller's
 # grants, so callers must declare at least this set; every job below narrows
@@ -156,10 +174,13 @@ jobs:
       - name: Preflight pull request publication permissions
         # Fails closed, before the expensive implementation stage, when the
         # repository's Actions settings would reject the draft pull request.
+        # With GitHub App publication credentials the GITHUB_TOKEN settings do
+        # not gate publication, so only a warning is issued.
         if: steps.decision.outputs.proceed == 'true' && inputs.dry_run == false
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
+          USING_APP_TOKEN: ${{ secrets.APP_ID != '' && secrets.APP_PRIVATE_KEY != '' && 'true' || 'false' }}
         run: bash automation/scripts/opencode-ai-task/check-publish-permissions.sh
 
   implement:
@@ -456,7 +477,7 @@ jobs:
           retention-days: 7
 
   publish:
-    name: D. Push branch and open draft pull request
+    name: D. Push branch and open pull request
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [authorise, implement, validate]
@@ -469,6 +490,8 @@ jobs:
       BRANCH: ${{ needs.authorise.outputs.branch }}
       BASE_SHA: ${{ needs.authorise.outputs.base_sha }}
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      # Draft by default; callers may publish ready-for-review pull requests.
+      PR_DRAFT: ${{ inputs.draft && 'true' || 'false' }}
     steps:
       - name: Check out target repository at pinned base
         uses: actions/checkout@v7
@@ -511,9 +534,30 @@ jobs:
           WORK="$(bash automation/scripts/opencode-ai-task/apply-validated.sh | sed -n 's/^WORK=//p')"
           echo "PUBLISH_WORK=${WORK}" >>"${GITHUB_ENV}"
 
-      - name: Push branch and open draft pull request
+      - name: Mint GitHub App publication token
+        # Optional cross-repo publication credential. A pull request created
+        # with an App installation token triggers the target repository's own
+        # pull_request workflows without the held-for-approval gate that
+        # applies to GITHUB_TOKEN-created pull requests. The installation must
+        # grant contents: write and pull requests: write on this repository.
+        id: app-token
         env:
-          GH_TOKEN: ${{ github.token }}
+          APP_ID: ${{ secrets.APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+        if: env.APP_ID != '' && env.APP_PRIVATE_KEY != ''
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Push branch and open pull request
+        env:
+          # Fall back to GITHUB_TOKEN when no App credentials are configured.
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          USING_APP_TOKEN: ${{ steps.app-token.outputs.token != '' && 'true' || 'false' }}
           REPOSITORY: ${{ github.repository }}
           PUBLISH_WORK: ${{ env.PUBLISH_WORK }}
           ARTIFACT_DIR: ${{ runner.temp }}/opencode-validated

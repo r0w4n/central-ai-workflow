@@ -229,6 +229,41 @@ check "no merge command was ever issued" \
 check "publication script removed the temporary remote" \
   "! git -C '$PUBLISH_WORK' remote | grep -q publish-origin"
 
+# ------------------------------- ready-for-review publication (PR_DRAFT=false) --
+# A caller that sets draft=false gets a ready-for-review PR, and App-token
+# publication replaces the held-for-approval automation note.
+BARE4="$tmp/ready-bare.git"
+git init -q --bare "$BARE4"
+READY_WORK="$tmp/ready-publish-work"
+ARTIFACT_DIR="$tmp/e2e-validated" TRUSTED_REPO="$TRUSTED" BASE_SHA="$BASE_SHA" \
+  BRANCH=ai/issue-5 ISSUE_NUMBER=5 WORK_DIR="$READY_WORK" \
+  bash "$here/apply-validated.sh" >/dev/null
+(
+  cd "$READY_WORK"
+  git config user.email publish@example.com
+  git config user.name publish
+)
+: >"$tmp/gh-calls.log"
+PUBLISH_WORK="$READY_WORK" ARTIFACT_DIR="$tmp/e2e-validated" \
+  BRANCH=ai/issue-5 ISSUE_NUMBER=5 BASE_SHA="$BASE_SHA" DEFAULT_BRANCH=main \
+  REPOSITORY=r0w4n/Rudiment REMOTE_URL="$BARE4" \
+  PR_DRAFT=false USING_APP_TOKEN=true \
+  PR_BODY_FILE="$tmp/ready-pr-body.md" \
+  bash "$here/publish-pr.sh" >"$tmp/ready.out" 2>"$tmp/ready.err" && RRC=0 || RRC=$?
+check "ready-for-review publication succeeds" "[ '$RRC' -eq 0 ]"
+check "ready-for-review PR is not created as a draft" \
+  "! grep -q -- '--draft' '$tmp/gh-calls.log'"
+check "ready-for-review PR head is the task branch" \
+  "grep -q -- '--head ai/issue-5' '$tmp/gh-calls.log'"
+check "ready-for-review PR body omits the draft note" \
+  "! grep -q 'Draft pull request' '$tmp/ready-pr-body.md'"
+check "App-token PR body notes automatic CI checks" \
+  "grep -q 'GitHub App token' '$tmp/ready-pr-body.md'"
+check "App-token PR body omits the held-for-approval note" \
+  "! grep -q 'held for approval' '$tmp/ready-pr-body.md'"
+check "ready-for-review notice mentions the PR" \
+  "grep -q 'ready for review' '$tmp/ready.out'"
+
 # --- invalid metadata is rejected before any push -----------------------------
 rm -rf "$tmp/badmeta-work"
 cp -R "$PUBLISH_WORK" "$tmp/badmeta-work"

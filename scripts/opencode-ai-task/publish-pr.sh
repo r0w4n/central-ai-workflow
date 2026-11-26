@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
 # Publication sequence for the OpenCode AI task: validate metadata, build the
-# draft pull request body from the VALIDATED artifact, push the branch with
-# hooks and credential helpers disabled, and create a draft pull request.
+# pull request body from the VALIDATED artifact, push the branch with hooks
+# and credential helpers disabled, and create the pull request (draft unless
+# PR_DRAFT=false).
 #
 # Runs in the publish job from a TRUSTED checkout. GitHub credentials are
 # supplied via GIT_ASKPASS only; the token never appears in a remote URL or
@@ -14,6 +15,10 @@
 #   ARTIFACT_DIR      downloaded VALIDATED artifact (meta.json, patches/,
 #                     pr-summary.md, issue-title.txt)
 #   BRANCH, ISSUE_NUMBER, BASE_SHA, DEFAULT_BRANCH
+#   PR_DRAFT          "false" opens the pull request ready for review
+#                     (default: draft)
+#   USING_APP_TOKEN   "true" when GH_TOKEN is a GitHub App installation token;
+#                     adjusts the automation notes in the pull request body
 #   GH_TOKEN          write token (via askpass; not stored anywhere)
 #   RUN_URL           optional workflow run link for the PR body
 #   NOTIFY_GH         set to 0 in tests to skip calls that need gh
@@ -35,11 +40,15 @@ REPOSITORY="${REPOSITORY:?REPOSITORY is required}"
 # Testable override: the complete remote URL. Defaults to the real GitHub.
 REMOTE_URL="${REMOTE_URL:-https://github.com/${REPOSITORY}.git}"
 RUN_URL="${RUN_URL:-}"
+PR_DRAFT="${PR_DRAFT:-true}"
+USING_APP_TOKEN="${USING_APP_TOKEN:-false}"
 PR_BODY_FILE="${PR_BODY_FILE:-${RUNNER_TEMP:-/tmp}/opencode-pr-body.md}"
 
 fail() { echo "::error::$1" >&2; exit 1; }
 
 require_numeric "${ISSUE_NUMBER}" || fail "issue number is not numeric"
+case "${PR_DRAFT}" in true|false) ;; *) fail "PR_DRAFT must be true or false" ;; esac
+case "${USING_APP_TOKEN}" in true|false) ;; *) fail "USING_APP_TOKEN must be true or false" ;; esac
 
 # --- Validate the artifact metadata BEFORE any push ---------------------------
 META="${ARTIFACT_DIR}/meta.json"
@@ -81,8 +90,16 @@ SUMMARY="$(cat "${SUMMARY_FILE}")"
   echo "- Created automatically by OpenCode from issue #${ISSUE_NUMBER}."
   echo "- Complexity: \`${META_COMPLEXITY}\`; model: \`${META_MODEL:-unknown}\`."
   echo "- Central automation revision: \`${META_AUTOMATION_SHA}\`."
-  echo "- Draft pull request: nothing is merged, deployed or pushed to \`${DEFAULT_BRANCH}\` until you review and approve it."
-  echo "- CI checks for this PR were created by \`GITHUB_TOKEN\` and are held for approval; approve the workflow runs from the pull request page to start the repository checks."
+  if [ "${PR_DRAFT}" = "true" ]; then
+    echo "- Draft pull request: nothing is merged, deployed or pushed to \`${DEFAULT_BRANCH}\` until you review and approve it."
+  else
+    echo "- Nothing is merged, deployed or pushed to \`${DEFAULT_BRANCH}\` until you review and approve it."
+  fi
+  if [ "${USING_APP_TOKEN}" = "true" ]; then
+    echo "- CI checks for this PR start automatically; the pull request was created with a GitHub App token."
+  else
+    echo "- CI checks for this PR were created by \`GITHUB_TOKEN\` and are held for approval; approve the workflow runs from the pull request page to start the repository checks."
+  fi
   if [ -n "${RUN_URL}" ]; then
     echo "- Workflow run: ${RUN_URL}"
   fi
@@ -121,14 +138,16 @@ trap cleanup EXIT
 git -C "${PUBLISH_WORK}" push --no-verify publish-origin "${BRANCH}:${BRANCH}" ||
   fail "pushing ${BRANCH} failed"
 
-# --- Create the draft PR; clean up the branch if that fails -------------------
-if ! gh pr create --draft \
+# --- Create the pull request; clean up the branch if that fails ---------------
+DRAFT_FLAG=(--draft)
+[ "${PR_DRAFT}" = "false" ] && DRAFT_FLAG=()
+if ! gh pr create ${DRAFT_FLAG[@]+"${DRAFT_FLAG[@]}"} \
     --repo "${REPOSITORY}" \
     --base "${DEFAULT_BRANCH}" \
     --head "${BRANCH}" \
     --title "ai: issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}" \
     --body-file "${PR_BODY_FILE}"; then
-  echo "::error::Draft pull request creation failed after the branch push."
+  echo "::error::Pull request creation failed after the branch push."
   if git -C "${PUBLISH_WORK}" push --no-verify publish-origin --delete "${BRANCH}" >/dev/null 2>&1; then
     echo "::error::The pushed branch ${BRANCH} was deleted again so no orphaned branch remains."
     echo "::error::The validated implementation is retained as the 'opencode-validated' artifact of this run; fix the cause and rerun the task (dedup will then allow a fresh branch)."
@@ -142,6 +161,12 @@ cleanup
 
 PR_URL="$(gh pr view "${BRANCH}" --repo "${REPOSITORY}" --json url --jq '.url')"
 echo "PR_URL=${PR_URL}"
-echo "::notice::Draft pull request created: ${PR_URL}"
-echo "::notice::Its CI workflow runs are held for approval; approve them from the pull request page to start the repository checks."
+if [ "${PR_DRAFT}" = "true" ]; then
+  echo "::notice::Draft pull request created: ${PR_URL}"
+else
+  echo "::notice::Pull request created ready for review: ${PR_URL}"
+fi
+if [ "${USING_APP_TOKEN}" != "true" ]; then
+  echo "::notice::Its CI workflow runs are held for approval; approve them from the pull request page to start the repository checks."
+fi
 

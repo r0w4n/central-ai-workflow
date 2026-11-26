@@ -16,6 +16,9 @@
 # Inputs (environment):
 #   REPOSITORY   owner/name of the target repository
 #   GH_TOKEN     GITHUB_TOKEN of the calling workflow
+#   USING_APP_TOKEN  "true" when publication uses GitHub App credentials, in
+#                    which case the GITHUB_TOKEN repository settings do not
+#                    gate publication (warnings only)
 #
 # Exit codes:
 #   0  the settings allow publication, or the API cannot verify them (warned)
@@ -24,6 +27,7 @@
 set -euo pipefail
 
 REPOSITORY="${REPOSITORY:?REPOSITORY is required}"
+USING_APP_TOKEN="${USING_APP_TOKEN:-false}"
 
 warn() { echo "::warning::$1" >&2; }
 
@@ -39,11 +43,15 @@ DEFAULT_PERMS="$(jq -r '.default_workflow_permissions // ""' <<<"${RESPONSE}")"
 CAN_CREATE_PRS="$(jq -r '.can_approve_pull_request_reviews' <<<"${RESPONSE}")"
 
 if [ "${DEFAULT_PERMS}" = "read" ]; then
-  {
-    echo "::error::The default GITHUB_TOKEN permissions for ${REPOSITORY} are read-only; the publish job cannot push the task branch."
-    echo "::error::Fix: repository Settings > Actions > General > Workflow permissions > select 'Read and write permissions'. YAML 'permissions:' keys cannot elevate this setting."
-  } >&2
-  exit 1
+  if [ "${USING_APP_TOKEN}" = "true" ]; then
+    warn "${REPOSITORY} GITHUB_TOKEN permissions are read-only, but publication uses GitHub App credentials, so this does not gate the pull request."
+  else
+    {
+      echo "::error::The default GITHUB_TOKEN permissions for ${REPOSITORY} are read-only; the publish job cannot push the task branch."
+      echo "::error::Fix: repository Settings > Actions > General > Workflow permissions > select 'Read and write permissions'. YAML 'permissions:' keys cannot elevate this setting."
+    } >&2
+    exit 1
+  fi
 fi
 [ -n "${DEFAULT_PERMS}" ] || {
   warn "The workflow permissions API returned no default_workflow_permissions for ${REPOSITORY}; verify the workflow permissions setting manually."
@@ -51,15 +59,23 @@ fi
 }
 
 if [ "${CAN_CREATE_PRS}" = "false" ]; then
-  {
-    echo "::error::${REPOSITORY} does not allow GitHub Actions to create or approve pull requests; draft pull request creation would fail after implementation."
-    echo "::error::Fix: repository Settings > Actions > General > Workflow permissions > enable 'Allow GitHub Actions to create and approve pull requests'. This manual repository setting cannot be enabled from workflow YAML."
-  } >&2
-  exit 1
+  if [ "${USING_APP_TOKEN}" = "true" ]; then
+    warn "${REPOSITORY} does not allow GITHUB_TOKEN to create pull requests, but publication uses GitHub App credentials, so this does not gate the pull request."
+  else
+    {
+      echo "::error::${REPOSITORY} does not allow GitHub Actions to create or approve pull requests; draft pull request creation would fail after implementation."
+      echo "::error::Fix: repository Settings > Actions > General > Workflow permissions > enable 'Allow GitHub Actions to create and approve pull requests'. This manual repository setting cannot be enabled from workflow YAML."
+    } >&2
+    exit 1
+  fi
 fi
 [ "${CAN_CREATE_PRS}" = "true" ] || {
   warn "The workflow permissions API returned no can_approve_pull_request_reviews value for ${REPOSITORY}; verify the 'Allow GitHub Actions to create and approve pull requests' setting manually."
   exit 0
 }
 
-echo "::notice::Workflow token permissions verified: GITHUB_TOKEN is read/write and Actions-created pull requests are allowed."
+if [ "${USING_APP_TOKEN}" = "true" ]; then
+  echo "::notice::Publication will use GitHub App credentials; GITHUB_TOKEN repository settings were not required."
+else
+  echo "::notice::Workflow token permissions verified: GITHUB_TOKEN is read/write and Actions-created pull requests are allowed."
+fi
