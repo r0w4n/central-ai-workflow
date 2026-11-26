@@ -5,6 +5,15 @@ were extracted from Rudiment commit
 `1722fe880607367c3dc694a3fc65d0a8e5b4cfa7` and generalized without changing
 the four-stage patch-artifact architecture.
 
+- `preflight.sh` runs from the trusted snapshot in the implementation job
+  before the agent starts. It fails closed when the Git root does not resolve
+  to `$GITHUB_WORKSPACE` or a required tool is missing, and logs the working
+  directory, Git checkout, and tool versions.
+- `check-publish-permissions.sh` runs in the authorise job. It checks the
+  repository Actions settings that gate publication (`GET /repos/{owner}/
+  {repo}/actions/permissions/workflow`) and fails closed with remediation
+  before implementation; an unverifiable API warns and continues.
+
 Scripts that run after the model are either snapshotted before model execution
 or freshly checked out from the central commit identified by
 `job.workflow_sha`. Behavioral tests use only disposable local repositories,

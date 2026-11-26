@@ -15,6 +15,12 @@ case "${profile}" in
     archive="${RUNNER_TEMP:?RUNNER_TEMP is required}/trunk-${trunk_version}.tar.gz"
     bin_dir="${RUNNER_TEMP}/trunk-${trunk_version}-bin"
 
+    # Install the Rust toolchain the project pins via rust-toolchain.toml when
+    # it declares one; otherwise the runner's default toolchain is used.
+    if [ -f rust-toolchain.toml ] || [ -f rust-toolchain ]; then
+      rustup show
+    fi
+
     rustup target add wasm32-unknown-unknown
     rustup target list --installed | grep -Fx 'wasm32-unknown-unknown'
 

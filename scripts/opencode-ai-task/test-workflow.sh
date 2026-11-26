@@ -83,6 +83,12 @@ assert_in "$workflow" "toolchain setup is explicitly opt-in" \
   "default: none"
 
 # --- Job permissions -----------------------------------------------------------
+tb="$(job_block authorise)"; t_start=${tb%% *}; t_end=${tb##* }
+if sed -n "${t_start},${t_end}p" "$workflow" | grep -q "contents: write"; then
+  ko "authorise job has no write permissions"
+else
+  ok "authorise job has no write permissions"
+fi
 pb="$(job_block implement)"; p_start=${pb%% *}; p_end=${pb##* }
 if sed -n "${p_start},${p_end}p" "$workflow" | grep -q "contents: write"; then
   ko "implement job has no write permissions"
@@ -106,6 +112,45 @@ if sed -n "${n_start},${n_end}p" "$workflow" | grep -q "issues: write"; then
 else
   ok "publish job does not hold issues: write"
 fi
+assert_in "$workflow" "top-level permissions declare the required caller grants" \
+  "^permissions:\$"
+[ "$(grep -c "^  contents: write" "$workflow")" -ge 1 ] &&
+  [ "$(grep -c "^  pull-requests: write" "$workflow")" -ge 1 ] &&
+  [ "$(grep -c "^  issues: write" "$workflow")" -ge 1 ] &&
+  ok "top-level permissions include contents, pull-requests, and issues write" ||
+  ko "top-level permissions include contents, pull-requests, and issues write"
+assert_in "$here/check-publish-permissions.sh" \
+  "permission preflight explains the manual repository setting" \
+  "Allow GitHub Actions to create and approve pull requests"
+
+# --- Preflight gates before implementation ------------------------------------
+assert_in "$workflow" "authorise preflights publication permissions" \
+  "check-publish-permissions.sh"
+assert_in "$workflow" "implementation preflights the environment from trusted scripts" \
+  'TRUSTED_SCRIPTS\}/preflight\.sh'
+assert_in "$here/preflight.sh" "preflight requires the Git root to be GITHUB_WORKSPACE" \
+  'git rev-parse --show-toplevel resolved to'
+assert_in "$here/preflight.sh" "preflight fails closed on missing tools" \
+  "is not available before implementation"
+ps="$(step_range "Preflight workspace and tools")"; preflight_start=${ps%% *}
+ie="$(step_range "Implement the task")"; impl_start=${ie%% *}
+if [ "$preflight_start" -gt 0 ] && [ "$preflight_start" -lt "$impl_start" ]; then
+  ok "preflight runs before the agent starts"
+else
+  ko "preflight runs before the agent starts"
+fi
+
+# --- Agent working directory ----------------------------------------------------
+assert_in "$workflow" "target checkout is the runner workspace root" \
+  'path: \.$'
+assert_in "$workflow" "agent step pins the working directory to the workspace" \
+  'working-directory: \$\{\{ github.workspace \}\}'
+assert_in "$workflow" "implement steps cd to GITHUB_WORKSPACE explicitly" \
+  'cd "\$\{GITHUB_WORKSPACE\}"'
+assert_in "$workflow" "automation checkout is removed before the agent runs" \
+  'rm -rf "\$\{GITHUB_WORKSPACE\}/automation"'
+assert_in "$workflow" "agent logs the resolved repository root" \
+  'git rev-parse --show-toplevel'
 
 # --- Credential isolation ------------------------------------------------------
 [ "$(grep -c "persist-credentials: false" "$workflow")" -ge 3 ] &&

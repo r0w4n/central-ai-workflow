@@ -22,8 +22,13 @@ write token must never be available to the model process.
   the verified workflow revision. They run in the read-only implementation job
   before the model secret is placed in a step environment; caller-controlled
   setup actions are never executed. A profile may run an explicit target build
-  in `target/`, but it does so in that same unprivileged, secret-free
-  preflight.
+  in the agent's workspace checkout, but it does so in that same unprivileged,
+  secret-free preflight.
+- A trusted preflight runs after the toolchain build and before the model: it
+  fails closed unless `git rev-parse --show-toplevel` resolves to
+  `$GITHUB_WORKSPACE` and every required tool is present. The automation
+  checkout is removed from the workspace before the agent starts, so the agent
+  sees a single clean repository.
 - Only numbered binary `format-patch` files, bounded text metadata, and a
   checksum manifest cross the implementation boundary. No repository or Git
   directory is uploaded.
@@ -38,6 +43,10 @@ write token must never be available to the model process.
   `pull-requests: write` permissions. It revalidates before authentication,
   supplies its token through `GIT_ASKPASS`, pushes an explicit task-branch
   refspec, creates only a draft PR, and removes an orphan branch on failure.
+  A preflight in the authorise stage checks the repository's Actions workflow
+  permissions and fails closed before implementation when they would reject
+  publication; when the API is unverifiable, it warns instead so manual
+  verification instructions are shown without inventing access.
 - Diagnostics contain only a redacted log tail and filename/status lists. A
   failed redaction prevents upload.
 - Failure notification has issue-write permission only and is best-effort, so

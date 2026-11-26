@@ -1,7 +1,8 @@
 name: OpenCode AI task (reusable)
 
 # Four isolated stages: authorise -> implement -> validate -> publish.
-# The caller's repository is always checked out under target/. The trusted
+# The implement job checks the caller's repository out at the runner workspace
+# root ($GITHUB_WORKSPACE); other jobs check it out under target/. The trusted
 # automation is separately checked out under automation/ from the exact commit
 # that defines this reusable workflow (job.workflow_sha).
 
@@ -27,10 +28,14 @@ on:
         description: OpenCode Go API credential
         required: true
 
+# Required caller grants. GitHub caps a called workflow at the caller's
+# grants, so callers must declare at least this set; every job below narrows
+# to the minimum it needs. These YAML grants cannot substitute for the manual
+# repository setting that allows GitHub Actions to create pull requests.
 permissions:
-  contents: read
-  issues: read
-  pull-requests: read
+  contents: write
+  issues: write
+  pull-requests: write
 
 concurrency:
   group: opencode-ai-task-${{ github.repository }}-${{ inputs.issue_number }}
@@ -148,6 +153,15 @@ jobs:
             echo "branch=ai/issue-${ISSUE_NUMBER}"
           } >>"${GITHUB_OUTPUT}"
 
+      - name: Preflight pull request publication permissions
+        # Fails closed, before the expensive implementation stage, when the
+        # repository's Actions settings would reject the draft pull request.
+        if: steps.decision.outputs.proceed == 'true' && inputs.dry_run == false
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: bash automation/scripts/opencode-ai-task/check-publish-permissions.sh
+
   implement:
     name: B. Implement with OpenCode
     runs-on: ubuntu-latest
@@ -164,10 +178,16 @@ jobs:
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
     steps:
       - name: Check out target repository at pinned base
+        # The target repository is checked out at the runner workspace root so
+        # that $GITHUB_WORKSPACE is the Git repository root. OpenCode, Git
+        # commands, repository discovery, AGENTS.md lookups, and build commands
+        # then all operate relative to the same tree. The trusted automation is
+        # checked out only as a temporary second directory and is removed
+        # before the agent starts, leaving a single, clean repository.
         uses: actions/checkout@v7
         with:
           ref: ${{ needs.authorise.outputs.base_sha }}
-          path: target
+          path: .
           persist-credentials: false
           fetch-depth: 0
 
@@ -191,8 +211,15 @@ jobs:
           TRUSTED_SCRIPTS="${RUNNER_TEMP}/trusted-opencode-ai-task"
           rm -rf "${TRUSTED_SCRIPTS}"
           cp -R automation/scripts/opencode-ai-task "${TRUSTED_SCRIPTS}"
+          mkdir -p "${RUNNER_TEMP}/trusted-config"
+          cp automation/config/models.conf "${RUNNER_TEMP}/trusted-config/models.conf"
+          # Remove the second checkout from the workspace so the agent sees one
+          # clean Git repository rooted at $GITHUB_WORKSPACE.
+          chmod -R u+w automation
+          rm -rf "${GITHUB_WORKSPACE}/automation"
           {
             echo "TRUSTED_SCRIPTS=${TRUSTED_SCRIPTS}"
+            echo "MODEL_CONFIG=${RUNNER_TEMP}/trusted-config/models.conf"
             echo "SPEC_FILE=${RUNNER_TEMP}/opencode-issue-spec.md"
             echo "INSTRUCTIONS_FILE=${RUNNER_TEMP}/opencode-instructions.txt"
             echo "PR_SUMMARY_FILE=${RUNNER_TEMP}/opencode-pr-summary.md"
@@ -201,10 +228,23 @@ jobs:
           } >>"${GITHUB_ENV}"
 
       - name: Configure target git identity
-        working-directory: target
+        working-directory: ${{ github.workspace }}
         run: |
           git config user.name "opencode-ai-task[bot]"
           git config user.email "opencode-ai-task[bot]@users.noreply.github.com"
+
+      - name: Restore project toolchain caches
+        if: inputs.toolchain_profile != 'none'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.npm
+            ${{ github.workspace }}/target
+          key: opencode-ai-task-${{ inputs.toolchain_profile }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock', '**/package-lock.json') }}
+          restore-keys: |
+            opencode-ai-task-${{ inputs.toolchain_profile }}-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Re-check authorisation
         env:
@@ -247,7 +287,7 @@ jobs:
           gh issue view "${ISSUE_NUMBER}" --repo "${GITHUB_REPOSITORY}" --json title --jq '.title' >"${ISSUE_TITLE_FILE}"
           gh issue view "${ISSUE_NUMBER}" --repo "${GITHUB_REPOSITORY}" \
             --json title,body --jq '"# " + .title + "\n\n" + (.body // "")' >"${SPEC_FILE}"
-          SELECTION="$(SPEC_FILE="${SPEC_FILE}" MODEL_CONFIG="${GITHUB_WORKSPACE}/automation/config/models.conf" bash "${TRUSTED_SCRIPTS}/select-model.sh")"
+          SELECTION="$(SPEC_FILE="${SPEC_FILE}" MODEL_CONFIG="${MODEL_CONFIG}" bash "${TRUSTED_SCRIPTS}/select-model.sh")"
           MODEL="$(sed -n 's/^model=//p' <<<"${SELECTION}")"
           COMPLEXITY="$(sed -n 's/^complexity=//p' <<<"${SELECTION}")"
           {
@@ -264,25 +304,38 @@ jobs:
 
       - name: Provision trusted toolchain
         if: inputs.toolchain_profile != 'none'
-        working-directory: target
+        working-directory: ${{ github.workspace }}
         env:
           TOOLCHAIN_PROFILE: ${{ inputs.toolchain_profile }}
         run: bash "${TRUSTED_SCRIPTS}/setup-toolchain.sh"
 
       - name: Verify target web build
         if: inputs.toolchain_profile == 'rudiment-web'
-        working-directory: target
+        working-directory: ${{ github.workspace }}
         run: |
           npm ci
           npm run build
 
+      - name: Preflight workspace and tools
+        # Fails closed before the agent starts when the working directory is
+        # not the Git repository root or a required tool is missing.
+        working-directory: ${{ github.workspace }}
+        env:
+          TOOLCHAIN_PROFILE: ${{ inputs.toolchain_profile }}
+        run: bash "${TRUSTED_SCRIPTS}/preflight.sh"
+
       - name: Implement the task
         timeout-minutes: 45
-        working-directory: target
+        working-directory: ${{ github.workspace }}
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
         run: |
           set -euo pipefail
+          # Explicit working directory: never rely on the runner's inherited
+          # directory. OpenCode discovers its project from this directory.
+          cd "${GITHUB_WORKSPACE}"
+          echo "Agent working directory: $(pwd)"
+          echo "Git repository root: $(git rev-parse --show-toplevel)"
           cat >"${INSTRUCTIONS_FILE}" <<EOF
           You are implementing a development task in ${GITHUB_REPOSITORY} for GitHub issue ${ISSUE_NUMBER}.
 
@@ -301,7 +354,7 @@ jobs:
           opencode run --auto --archived --model "${MODEL}" --file "${SPEC_FILE}" "$(cat "${INSTRUCTIONS_FILE}")"
 
       - name: Export changes as restricted artifact
-        working-directory: target
+        working-directory: ${{ github.workspace }}
         env:
           AUTOMATION_SHA: ${{ job.workflow_sha }}
         run: bash "${TRUSTED_SCRIPTS}/export-changes.sh"
@@ -316,7 +369,7 @@ jobs:
       - name: Collect and redact failure diagnostics
         id: diagnostics
         if: failure()
-        working-directory: target
+        working-directory: ${{ github.workspace }}
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
         run: |
