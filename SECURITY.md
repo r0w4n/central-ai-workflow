@@ -33,7 +33,9 @@ write token must never be available to the model process.
   persisted checkout credential, or repository write permission.
 - An optional consumer-owned `.github/actions/setup-ai-task` action runs only
   in the read-only implementation job, before the model credential is placed
-  in a step environment. Step-scoped variables are not treated as isolation:
+  in a step environment. It is checked out from the immutable caller revision
+  rather than the potentially older AI PR head, and its files are removed from
+  the agent checkout after setup. Step-scoped variables are not treated as isolation:
   setup can leave processes running, alter `PATH`, replace tools, or modify the
   checkout before later steps. The whole remaining runner is therefore
   considered consumer-controlled. It never receives publication credentials

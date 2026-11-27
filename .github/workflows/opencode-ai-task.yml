@@ -468,9 +468,29 @@ jobs:
           } >>"${GITHUB_ENV}"
           rm -f "${PR_SUMMARY_FILE}"
 
+      # github.sha is the immutable caller revision (the approved base for
+      # issue_comment runs), not the possibly older AI PR head checked out above.
+      - name: Check out caller setup actions
+        id: checkout_setup
+        if: inputs.setup
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: .consumer-setup
+          persist-credentials: false
+          sparse-checkout: .github/actions
+
+      - name: Stage caller setup actions
+        if: inputs.setup
+        run: bash "${TRUSTED_SCRIPTS}/consumer-setup-actions.sh" stage
+
       - name: Set up consumer environment
         if: inputs.setup
         uses: ./.github/actions/setup-ai-task
+
+      - name: Restore target actions and remove setup checkout
+        if: always() && steps.checkout_setup.outcome == 'success'
+        run: bash "${TRUSTED_SCRIPTS}/consumer-setup-actions.sh" restore
 
       - name: Install pinned OpenCode
         run: |

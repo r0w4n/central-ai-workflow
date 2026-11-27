@@ -99,8 +99,13 @@ Disable saves for the AI job or save immutable dependency data before the local
 action returns. Never cache credentials, model sessions, issue data, or agent
 state.
 
-The setup action comes from the consumer's pinned base revision and runs only
-in the implementation job. After it runs, the rest of that runner must be
+The setup action comes from the immutable caller revision (`github.sha`) and
+runs only in the implementation job. This allows revision of an older PR head
+that predates the consumer's setup action. The workflow temporarily stages the
+caller's local actions at their normal workspace paths, then restores the PR
+head's files and removes the setup checkout before OpenCode starts. Manual
+retries should dispatch the caller workflow from the approved base branch.
+After setup runs, the rest of that runner must be
 treated as consumer-controlled: a process can persist, alter tools or modify
 the workspace across later steps. Consequently the job has no repository write
 permission or publication credential. Validation and publication use fresh
