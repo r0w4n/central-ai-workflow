@@ -41,10 +41,16 @@ ISSUE_NUMBER="${ISSUE_NUMBER:?ISSUE_NUMBER is required}"
 WORK_DIR="${WORK_DIR:?WORK_DIR is required}"
 VALIDATED_OUT="${VALIDATED_OUT:-}"
 AUTOMATION_SHA="${AUTOMATION_SHA:?AUTOMATION_SHA is required}"
+TASK_MODE="${TASK_MODE:-implementation}"
+PR_NUMBER="${PR_NUMBER:-0}"
+COMMENT_ID="${COMMENT_ID:-0}"
 
 fail() { echo "::error::$1" >&2; exit 1; }
 
 require_numeric "${ISSUE_NUMBER}" || fail "issue number is not numeric"
+case "${TASK_MODE}" in implementation|revision) ;; *) fail "invalid task mode" ;; esac
+require_numeric "${PR_NUMBER}" || fail "PR number is not numeric"
+require_numeric "${COMMENT_ID}" || fail "comment ID is not numeric"
 [ "${BRANCH}" = "ai/issue-${ISSUE_NUMBER}" ] ||
   fail "branch '${BRANCH}' does not match ai/issue-${ISSUE_NUMBER}"
 
@@ -62,6 +68,12 @@ META_COUNT="$(json_number_value "${META}" commit_count)"
 META_COMPLEXITY="$(json_string_value "${META}" complexity)"
 META_MODEL="$(json_string_value "${META}" model)"
 META_AUTOMATION_SHA="$(json_string_value "${META}" automation_sha)"
+META_TASK_MODE="$(json_string_value "${META}" task_mode)"
+META_PR_NUMBER="$(json_number_value "${META}" pr_number)"
+META_COMMENT_ID="$(json_number_value "${META}" comment_id)"
+[ "${META_TASK_MODE}" = "${TASK_MODE}" ] || fail "artifact task_mode mismatch"
+[ "${META_PR_NUMBER}" = "${PR_NUMBER}" ] || fail "artifact PR number mismatch"
+[ "${META_COMMENT_ID}" = "${COMMENT_ID}" ] || fail "artifact comment ID mismatch"
 [ "${META_BASE}" = "${BASE_SHA}" ] || fail "artifact base_sha mismatch"
 [ "${META_BRANCH}" = "${BRANCH}" ] || fail "artifact branch mismatch"
 [ "${META_ISSUE}" = "${ISSUE_NUMBER}" ] || fail "artifact issue mismatch"

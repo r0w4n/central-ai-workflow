@@ -294,7 +294,7 @@ check "malformed metadata fails before any push" \
 
 # --- failed PR creation deletes the pushed branch (no orphan) -----------------
 # Restore valid metadata (the previous case wrote a malformed one).
-printf '{"issue_number": "5", "branch": "ai/issue-5", "base_sha": "%s", "commit_count": 1, "complexity": "medium", "model": "test", "automation_sha": "%s", "validated": "true"}' "$BASE_SHA" "$AUTOMATION_SHA" \
+printf '{"task_mode": "implementation", "issue_number": "5", "pr_number": 0, "comment_id": 0, "branch": "ai/issue-5", "base_sha": "%s", "commit_count": 1, "complexity": "medium", "model": "test", "automation_sha": "%s", "validated": "true"}' "$BASE_SHA" "$AUTOMATION_SHA" \
   >"$tmp/e2e-validated/meta.json"
 cat >"$tmp/fake-bin/gh" <<FAKEGH
 #!/bin/sh

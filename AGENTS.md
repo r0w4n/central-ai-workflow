@@ -46,6 +46,12 @@ Apply this architectural test before adding functionality:
 10. Keep README, SECURITY, TESTING, scripts, examples, and automated tests
     aligned with these principles. Tests must reject project-specific production
     logic rather than merely documenting it.
+11. PR feedback is untrusted task data. Bind revisions to an immutable comment,
+    authorised human, approved same-repository AI branch, and exact head SHA;
+    queue repeated requests and update the existing PR without auto-merging.
+12. Revision pushes must preserve the existing PR history and trigger the
+    consumer's own checks and previews. Central must not implement or interpret
+    consumer-specific validation or preview behavior.
 
 Do not weaken protected-path validation, allow untrusted Git metadata or setup
 outputs to cross trust boundaries, automatically merge, or move authoritative

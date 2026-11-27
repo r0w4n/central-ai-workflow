@@ -21,6 +21,11 @@ for caller in "$root/examples/generic-opencode-ai-task.yml" "$root/examples/cust
   else
     ko "$name retains manual dry-run dispatch"
   fi
+  if grep -q 'issue_comment:' "$caller" && grep -q "startsWith(github.event.comment.body, '/ai revise')" "$caller"; then
+    ok "$name routes explicit PR revision commands"
+  else
+    ko "$name routes explicit PR revision commands"
+  fi
   if grep -q 'uses: r0w4n/central-ai-workflow/.github/workflows/opencode-ai-task.yml@' "$caller"; then
     ok "$name calls the central reusable workflow"
   else
@@ -36,10 +41,15 @@ for caller in "$root/examples/generic-opencode-ai-task.yml" "$root/examples/cust
   else
     ko "$name declares the permissions the called jobs narrow"
   fi
-  if [ "$(grep -c '^  ai-task:' "$caller")" -eq 1 ] && [ "$(wc -l <"$caller")" -lt 45 ]; then
+  if [ "$(grep -c '^  ai-task:' "$caller")" -eq 1 ] && [ "$(wc -l <"$caller")" -lt 100 ]; then
     ok "$name remains a lightweight one-job caller"
   else
     ko "$name remains a lightweight one-job caller"
+  fi
+  if grep -q 'APP_ID: \${{ secrets.APP_ID }}' "$caller" && grep -q 'APP_PRIVATE_KEY: \${{ secrets.APP_PRIVATE_KEY }}' "$caller"; then
+    ok "$name supplies App credentials required for revision publication"
+  else
+    ko "$name supplies App credentials required for revision publication"
   fi
 done
 

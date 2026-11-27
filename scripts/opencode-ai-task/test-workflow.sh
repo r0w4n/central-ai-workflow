@@ -83,6 +83,18 @@ assert_in "$workflow" "consumer setup interface is declared" \
   "^[[:space:]]+setup:"
 assert_in "$workflow" "consumer setup is explicitly opt-in" \
   "if: inputs\.setup"
+assert_in "$workflow" "revision mode is an explicit reusable interface" \
+  "task_mode:"
+assert_in "$workflow" "PR and immutable comment inputs are declared" \
+  "comment_id:"
+assert_in "$workflow" "revision commands are narrowly selected" \
+  "startsWith\(github\.event\.comment\.body, '/ai revise'\)"
+assert_in "$workflow" "revision state is revalidated before the agent" \
+  'TRUSTED_SCRIPTS\}/revision-gate\.sh'
+assert_in "$workflow" "comments cannot select the model" \
+  'SPEC_FILE="\$\{ISSUE_SPEC_FILE\}"'
+assert_in "$workflow" "per-PR concurrency never cancels queued feedback" \
+  "cancel-in-progress: false"
 
 # --- Job permissions -----------------------------------------------------------
 tb="$(job_block authorise)"; t_start=${tb%% *}; t_end=${tb##* }
@@ -110,9 +122,9 @@ else
   ko "publish job holds the write permissions"
 fi
 if sed -n "${n_start},${n_end}p" "$workflow" | grep -q "issues: write"; then
-  ko "publish job does not hold issues: write"
+  ok "publish job may update the trusted revision audit comment"
 else
-  ok "publish job does not hold issues: write"
+  ko "publish job may update the trusted revision audit comment"
 fi
 assert_in "$workflow" "top-level permissions declare the required caller grants" \
   "^permissions:\$"
@@ -347,7 +359,17 @@ assert_in "$root/SECURITY.md" "post-agent cache poisoning risk is documented" \
 assert_not_in "$workflow" "no automatic merge" "gh pr merge"
 assert_not_in "$workflow" "no marking PR ready for review" "gh pr ready"
 assert_not_in "$workflow" "no admin bypass flags" --admin
-assert_not_in "$workflow" "no force pushes" "git push[^|]*--force[^v]"
+assert_not_in "$workflow" "no unconstrained force pushes" "git push[^|]*--force([^ -]|[[:space:]])"
+assert_in "$here/publish-pr.sh" "revision push uses an exact expected-head lease" \
+  '--force-with-lease=refs/heads/\$\{BRANCH\}:\$\{BASE_SHA\}'
+assert_in "$here/publish-pr.sh" "revision publication preserves ancestry" \
+  'merge-base --is-ancestor'
+assert_in "$here/publish-pr.sh" "revision mode updates without creating another PR" \
+  'Revisions stop here: update the existing PR, never create another'
+assert_in "$workflow" "revision mode requires App credentials" \
+  'Revision mode requires GitHub App credentials'
+assert_in "$workflow" "revision completion is recorded on the existing PR" \
+  'Record completed revision on the pull request'
 assert_in "$here/publish-pr.sh" "pull requests are drafts by default" "DRAFT_FLAG=\(--draft\)"
 assert_in "$here/publish-pr.sh" "ready-for-review PRs are opt-in via PR_DRAFT" 'PR_DRAFT'
 assert_in "$workflow" "draft input defaults to draft" "default: true"
@@ -360,7 +382,7 @@ assert_in "$here/validate-changes.sh" \
 assert_not_in "$workflow" "no deploy actions" "deploy-pages"
 
 # --- Gate scripts executable ---------------------------------------------------
-for s in authorise.sh dedup-check.sh export-changes.sh validate-changes.sh apply-validated.sh redact.sh select-model.sh verify-trusted-checkout.sh; do
+for s in authorise.sh authorise-revision.sh dedup-check.sh revision-gate.sh revision-status.sh export-changes.sh validate-changes.sh apply-validated.sh redact.sh select-model.sh verify-trusted-checkout.sh; do
   if [ -x "$here/$s" ]; then ok "gate script executable: $s"; else ko "gate script executable: $s"; fi
 done
 

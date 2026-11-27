@@ -1,0 +1,11 @@
+{
+  "action": "created",
+  "issue": {"number": 42, "pull_request": {"url": "https://api.github.com/repos/r0w4n/example/pulls/42"}},
+  "comment": {
+    "id": 9001,
+    "user": {"login": "r0w4n", "type": "User"},
+    "body": "/ai revise Keep the BPM display synchronized while dragging."
+  },
+  "repository": {"full_name": "r0w4n/example", "default_branch": "main"},
+  "sender": {"login": "r0w4n", "type": "User"}
+}

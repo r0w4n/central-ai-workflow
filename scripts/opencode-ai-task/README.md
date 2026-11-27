@@ -13,6 +13,15 @@ the four-stage patch-artifact architecture.
   repository Actions settings that gate publication (`GET /repos/{owner}/
   {repo}/actions/permissions/workflow`) and fails closed with remediation
   before implementation; an unverifiable API warns and continues.
+- `revision-gate.sh` re-reads the PR, immutable comment, and linked issue;
+  `authorise-revision.sh` applies the pure generic policy. The gate is repeated
+  before agent execution, and publication performs a final head check.
+- `revision-status.sh` maintains one audit comment per initiating comment ID.
+  It records acceptance, completion/commit, rejection, or failure and gives
+  the manual retry inputs without producing a bot-trigger loop.
+- `publish-pr.sh` uses the same validated artifact path for both modes. Initial
+  mode creates one PR; revision mode appends to its existing branch only when
+  the remote still equals the pinned base and never opens another PR.
 
 Scripts that run after the model are either snapshotted before model execution
 or freshly checked out from the central commit identified by

@@ -1,0 +1,14 @@
+{
+  "number": 42,
+  "state": "open",
+  "merged": false,
+  "title": "ai: issue #17: Improve the metronome",
+  "body": "<!-- central-ai-generated-pr -->\n\n## Summary\n\nInitial implementation.\n\nCloses #17",
+  "user": {"login": "central-ai-publisher[bot]", "type": "Bot"},
+  "base": {"ref": "main"},
+  "head": {
+    "ref": "ai/issue-17",
+    "sha": "1111111111111111111111111111111111111111",
+    "repo": {"full_name": "r0w4n/example"}
+  }
+}

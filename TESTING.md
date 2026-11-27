@@ -29,7 +29,16 @@ checkout isolation, the optional consumer setup contract, the no-setup default,
 absence of project-specific production logic, and target repositories with
 different structures.
 
-Recent additions cover the workspace-root preflight (`test-preflight.sh`: the
+Revision coverage uses realistic GitHub REST and event payloads.
+`test-revision.sh` exercises authorised feedback, empty/malformed commands,
+unauthorised and bot authors, provenance, fork/base/branch checks, closed or
+merged PR rejection, and audit comments. `test-revision-publish.sh` proves two
+consecutive comments add commits to one existing PR branch, no second PR is
+created, and a concurrent head update is refused without overwriting it.
+Static checks cover event routing, per-PR concurrency, App publication,
+protected paths, failure status, and the absence of consumer build logic.
+
+Recent additions also cover the workspace-root preflight (`test-preflight.sh`: the
 Git root must resolve to `$GITHUB_WORKSPACE` and missing central tools fail
 closed), the generic local-action interface and its fresh-runner security
 boundary (`test-workflow.sh`), and the publication-permission preflight
