@@ -23,6 +23,12 @@
    with Central's reviewed `main` merge commit, rerun validation, then merge
    the consumer. Never merge a consumer with only an unmerged provisional pin
    or mutable tag/branch reference.
+9. When adopting checkpoint recovery, review a controlled failure run as well
+   as a successful run: confirm that a changed tree becomes a restricted
+   artifact, passes fresh-runner validation, and opens only a draft recovery
+   PR. Confirm a protected-path checkpoint is rejected and no incomplete work
+   reaches the default branch. Consumers need no new workflow input, but should
+   update their agent guidance for focused checks and fresh browser builds.
 
 Before merging a consumer migration that references an unmerged central branch,
 replace the provisional SHA with the final reviewed release commit and repeat

@@ -69,6 +69,10 @@ check "comment contains the run URL" \
 check "comment confirms nothing merged or deployed" \
   "grep -q 'Nothing was merged, pushed to .main. or deployed' '$tmp/impl.md'"
 
+IMPLEMENT_RESULT=failure PUBLISH_RESULT=success run_notify "$tmp/recovered.md"
+check "recovered failure identifies the draft checkpoint" \
+  "grep -q 'recoverable checkpoint.*draft pull request' '$tmp/recovered.md'"
+
 # A failing gh call exits non-zero (continue-on-error in the workflow keeps
 # the original failure authoritative).
 mkdir -p "$tmp/fb"

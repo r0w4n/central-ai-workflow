@@ -34,7 +34,11 @@ authorise (trusted API gate) -> implement (read + model secret) -> validate (rea
    verifies the central runtime (working directory, Git checkout, and required
    orchestration tools) in a trusted preflight before giving the agent only
    `OPENCODE_API_KEY`. The output is a restricted patch artifact—never the
-   working tree or `.git` directory.
+   working tree or `.git` directory. The agent has a 35-minute execution cap,
+   with a reserved finish-and-commit budget. It runs focused consumer checks;
+   the consumer PR workflows remain the comprehensive regression gate. If the
+   agent step fails or times out, a trusted snapshot commits its remaining
+   non-ignored work and exports the same restricted patch format.
 3. **Validate** starts on a fresh runner, verifies checksums and metadata,
    applies patches with hooks and credential helpers disabled, and rejects
    protected paths, traversal, symlinks, submodules, malformed patches, merge
@@ -44,6 +48,11 @@ authorise (trusted API gate) -> implement (read + model secret) -> validate (rea
    PR. Revision mode requires a GitHub App token, verifies the remote head still
    equals the pinned SHA, then uses an exact lease to append commits to the
    same branch. It never merges or updates the default branch.
+   A failed implementation with a valid checkpoint is published only as a
+   **draft recovery PR** after fresh-runner validation. A failed revision can
+   append a validated checkpoint to the existing PR, preserving its history.
+   The original run still reports failure, and project checks must pass before
+   a human decides whether to merge.
 5. **Notify** updates one comment-ID-keyed revision audit comment or reports an
    initial failure on the source issue.
 
@@ -65,9 +74,14 @@ to `.github/workflows/opencode-ai-task.yml` in the target repository, replace
 
 The target repository owns its source, issues, `AGENTS.md`, development
 instructions, and PR quality gates. The agent reads those instructions and runs
-the relevant QA before committing; normal target-repository PR workflows remain
+focused QA before committing; normal target-repository PR workflows remain
 the authoritative merge gates. Project configuration cannot bypass central
 artifact validation or change the approved model allowlist.
+
+For browser tests, the consumer must ensure a clean-base comparison uses a
+freshly built application. A checkout or stash without rebuilding cannot prove
+that a failure predates the task. Agent instructions limit unchanged test
+retries and require a short diagnosis when validation remains failing.
 
 Repositories that need environment preparation set `setup: true` and provide a
 local composite action at `.github/actions/setup-ai-task/action.yml`. The

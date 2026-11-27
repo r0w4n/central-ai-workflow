@@ -34,7 +34,11 @@ COMMENT_FILE="${COMMENT_FILE:-${RUNNER_TEMP:-/tmp}/opencode-failure-comment.md}"
 NOTIFY_DRY_RUN="${NOTIFY_DRY_RUN:-0}"
 
 {
-  echo "The OpenCode AI task for this issue failed before a draft pull request could be opened."
+  if [ "${IMPLEMENT_RESULT}" = failure ] && [ "${PUBLISH_RESULT}" = success ]; then
+    echo "The OpenCode AI task stopped early. Its recoverable checkpoint passed central artifact validation and was published as a draft pull request for review and continuation. The implementation and project tests remain incomplete."
+  else
+    echo "The OpenCode AI task for this issue failed before a pull request could be opened."
+  fi
   echo
   echo "Failed stages:"
   STAGES=0
@@ -58,7 +62,7 @@ NOTIFY_DRY_RUN="${NOTIFY_DRY_RUN:-0}"
     echo "Run: ${RUN_URL}"
     echo
   fi
-  echo "Nothing was merged, pushed to \`${DEFAULT_BRANCH}\` or deployed. If the branch \`${BRANCH}\` was pushed, delete it to retrigger the task."
+  echo "Nothing was merged, pushed to \`${DEFAULT_BRANCH}\` or deployed. If a checkpoint draft PR exists, continue on that branch through authorised PR feedback. Otherwise, if \`${BRANCH}\` was pushed without a PR, delete it to retrigger the task."
 } >"${COMMENT_FILE}"
 
 if [ "${NOTIFY_DRY_RUN}" = "1" ]; then

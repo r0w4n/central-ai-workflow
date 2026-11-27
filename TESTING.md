@@ -29,6 +29,14 @@ checkout isolation, the optional consumer setup contract, the no-setup default,
 absence of project-specific production logic, and target repositories with
 different structures.
 
+`test-checkpoint.sh` simulates a timed-out agent on a detached checkout with
+tracked and new files. It verifies that a checkpoint commit exports as a patch
+artifact, passes the fresh-base validator, and refuses an unexpected branch.
+`test-workflow.sh` checks the 35-minute agent cap, recovery-step ordering,
+artifact gating, fresh validation, and forced draft status for recovery PRs.
+Consumer CI remains responsible for the full application test suite; the agent
+runs only focused checks while implementing.
+
 Revision coverage uses realistic GitHub REST and event payloads.
 `test-revision.sh` exercises authorised feedback, empty/malformed commands,
 unauthorised and bot authors, provenance, fork/base/branch checks, closed or

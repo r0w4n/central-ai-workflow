@@ -46,6 +46,12 @@ write token must never be available to the model process.
 - Only numbered binary `format-patch` files, bounded text metadata, and a
   checksum manifest cross the implementation boundary. No repository or Git
   directory is uploaded.
+- A failed or timed-out agent may leave a dirty tree. The trusted checkpoint
+  step creates a local commit and exports it through the same restricted
+  artifact path. It has no publication credential. A checkpoint is never
+  trusted because it was committed; fresh-runner validation applies every
+  protected-path, mode, integrity, and pinned-base check before publication.
+  A recovered initial task opens a draft PR only, and no recovery path merges.
 - Validation uses a fresh pinned target checkout and trusted central script.
   It disables hooks and credential helpers before applying patches, performs
   text and resulting-tree checks, and regenerates the validated artifact.

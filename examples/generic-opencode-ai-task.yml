@@ -55,6 +55,8 @@ jobs:
       # .github/actions/setup-ai-task/action.yml and opt in here.
       # setup: true
       # draft defaults to true. Set false to publish ready-for-review PRs.
+      # An interrupted agent with a validated checkpoint always opens a
+      # draft recovery PR, regardless of this normal-publication preference.
       # draft: false
     secrets:
       OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}

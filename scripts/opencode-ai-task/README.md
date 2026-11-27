@@ -19,6 +19,9 @@ the four-stage patch-artifact architecture.
 - `revision-status.sh` maintains one audit comment per initiating comment ID.
   It records acceptance, completion/commit, rejection, or failure and gives
   the manual retry inputs without producing a bot-trigger loop.
+- `checkpoint-on-failure.sh` commits non-ignored work left by a failed or
+  timed-out agent so the existing restricted exporter can preserve it. The
+  checkpoint is still untrusted until fresh-runner validation succeeds.
 - `publish-pr.sh` uses the same validated artifact path for both modes. Initial
   mode creates one PR; revision mode appends to its existing branch only when
   the remote still equals the pinned base and never opens another PR.

@@ -50,6 +50,8 @@ jobs:
       comment_id: ${{ format('{0}', github.event_name == 'issue_comment' && github.event.comment.id || inputs.comment_id) }}
       dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
       setup: true
+      # The agent runs focused checks; consumer PR CI runs the full suite.
+      # A validated checkpoint from an interrupted run opens as a draft PR.
     secrets:
       OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
       APP_ID: ${{ secrets.APP_ID }}
