@@ -45,6 +45,9 @@ consecutive comments add commits to one existing PR branch, no second PR is
 created, and a concurrent head update is refused without overwriting it.
 Static checks cover event routing, per-PR concurrency, App publication,
 protected paths, failure status, and the absence of consumer build logic.
+`test-consumer-setup-actions.sh` exercises a revision head that predates its
+local setup action, nested local action resolution, exact restoration of an
+older head's action files, and failure when the caller has no setup action.
 
 Recent additions also cover the workspace-root preflight (`test-preflight.sh`: the
 Git root must resolve to `$GITHUB_WORKSPACE` and missing central tools fail

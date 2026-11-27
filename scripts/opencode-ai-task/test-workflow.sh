@@ -83,6 +83,14 @@ assert_in "$workflow" "consumer setup interface is declared" \
   "^[[:space:]]+setup:"
 assert_in "$workflow" "consumer setup is explicitly opt-in" \
   "if: inputs\.setup"
+assert_in "$workflow" "consumer setup is fetched from the immutable caller revision" \
+  'ref: \$\{\{ github.sha \}\}'
+assert_in "$workflow" "consumer setup checkout stays separate from the agent workspace" \
+  'path: \.consumer-setup'
+assert_in "$workflow" "consumer setup actions are staged by a trusted script" \
+  'consumer-setup-actions.sh" stage'
+assert_in "$workflow" "consumer setup actions are restored even after setup failure" \
+  'consumer-setup-actions.sh" restore'
 assert_in "$workflow" "revision mode is an explicit reusable interface" \
   "task_mode:"
 assert_in "$workflow" "PR and immutable comment inputs are declared" \
@@ -164,6 +172,22 @@ if [ "$preflight_start" -gt 0 ] && [ "$preflight_start" -lt "$impl_start" ]; the
   ok "preflight runs before the agent starts"
 else
   ko "preflight runs before the agent starts"
+fi
+cs="$(step_range "Check out caller setup actions")"; cs_start=${cs%% *}; cs_end=${cs##* }
+st="$(step_range "Stage caller setup actions")"; st_start=${st%% *}
+su="$(step_range "Set up consumer environment")"; su_start=${su%% *}
+rs="$(step_range "Restore target actions and remove setup checkout")"; rs_start=${rs%% *}
+if [ "$cs_start" -gt 0 ] && [ "$cs_start" -lt "$st_start" ] &&
+  [ "$st_start" -lt "$su_start" ] && [ "$su_start" -lt "$rs_start" ] &&
+  [ "$rs_start" -lt "$preflight_start" ]; then
+  ok "reviewed setup is staged and restored before agent preflight"
+else
+  ko "reviewed setup is staged and restored before agent preflight"
+fi
+if sed -n "${cs_start},${cs_end}p" "$workflow" | grep -q 'persist-credentials: false'; then
+  ok "caller setup checkout drops persisted credentials"
+else
+  ko "caller setup checkout drops persisted credentials"
 fi
 
 # --- Agent working directory ----------------------------------------------------
@@ -408,7 +432,7 @@ assert_in "$here/validate-changes.sh" \
 assert_not_in "$workflow" "no deploy actions" "deploy-pages"
 
 # --- Gate scripts executable ---------------------------------------------------
-for s in authorise.sh authorise-revision.sh dedup-check.sh revision-gate.sh revision-status.sh checkpoint-on-failure.sh export-changes.sh validate-changes.sh apply-validated.sh redact.sh select-model.sh verify-trusted-checkout.sh; do
+for s in authorise.sh authorise-revision.sh dedup-check.sh revision-gate.sh revision-status.sh checkpoint-on-failure.sh consumer-setup-actions.sh export-changes.sh validate-changes.sh apply-validated.sh redact.sh select-model.sh verify-trusted-checkout.sh; do
   if [ -x "$here/$s" ]; then ok "gate script executable: $s"; else ko "gate script executable: $s"; fi
 done
 
