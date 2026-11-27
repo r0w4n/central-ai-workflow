@@ -24,6 +24,11 @@ write token must never be available to the model process.
 - Comment feedback is never used for model selection and cannot alter workflow
   permissions, secrets, protected paths, or publication policy. Status comments
   do not begin with `/ai revise`, preventing bot-comment loops.
+- Only trusted authorise, publish, and notify jobs can write PR timeline status
+  comments. Their `pull-requests: write` grants stay separate from the read-only
+  implementation and validation jobs. A PR comment POST can fail with HTTP 403
+  under `issues: write` alone, despite the REST documentation listing that
+  permission as sufficient.
 - OpenCode receives `OPENCODE_API_KEY`, but no `GH_TOKEN`, `GITHUB_TOKEN`,
   persisted checkout credential, or repository write permission.
 - An optional consumer-owned `.github/actions/setup-ai-task` action runs only
