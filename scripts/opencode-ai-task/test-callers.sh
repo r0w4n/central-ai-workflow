@@ -9,7 +9,7 @@ fail=0
 ok() { pass=$((pass + 1)); echo "PASS: $1"; }
 ko() { fail=$((fail + 1)); echo "FAIL: $1"; }
 
-for caller in "$root/examples/generic-opencode-ai-task.yml" "$root/examples/rudiment-opencode-ai-task.yml"; do
+for caller in "$root/examples/generic-opencode-ai-task.yml" "$root/examples/custom-environment-opencode-ai-task.yml"; do
   name="$(basename "$caller")"
   if grep -q 'types: \[labeled\]' "$caller" && grep -q "github.event.label.name == 'ai-task'" "$caller"; then
     ok "$name retains issues:labeled and ai-task trigger"
@@ -43,12 +43,12 @@ for caller in "$root/examples/generic-opencode-ai-task.yml" "$root/examples/rudi
   fi
 done
 
-if grep -q 'toolchain_profile: rudiment-web' \
-  "$root/examples/rudiment-opencode-ai-task.yml" &&
-  ! grep -q 'toolchain_profile:' "$root/examples/generic-opencode-ai-task.yml"; then
-  ok "pinned Rust WASM/Trunk setup is scoped to the Rudiment caller"
+if grep -q 'setup: true' \
+  "$root/examples/custom-environment-opencode-ai-task.yml" &&
+  ! grep -q '^[[:space:]]*setup: true' "$root/examples/generic-opencode-ai-task.yml"; then
+  ok "consumer environment setup is optional"
 else
-  ko "pinned Rust WASM/Trunk setup is scoped to the Rudiment caller"
+  ko "consumer environment setup is optional"
 fi
 
 echo

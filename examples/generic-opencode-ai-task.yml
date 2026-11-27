@@ -27,6 +27,9 @@ jobs:
     with:
       issue_number: ${{ format('{0}', github.event.issue.number || inputs.issue_number) }}
       dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+      # If this repository needs project-specific preparation, add a local
+      # .github/actions/setup-ai-task/action.yml and opt in here.
+      # setup: true
       # draft defaults to true. Set false to publish ready-for-review PRs.
       # draft: false
     secrets:

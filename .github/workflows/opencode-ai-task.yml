@@ -18,11 +18,11 @@ on:
         required: false
         default: false
         type: boolean
-      toolchain_profile:
-        description: Optional centrally managed toolchain profile
+      setup:
+        description: Run the consumer-owned .github/actions/setup-ai-task action in the unprivileged implementation job
         required: false
-        default: none
-        type: string
+        default: false
+        type: boolean
       draft:
         description: Open the pull request as a draft for review
         required: false
@@ -254,19 +254,6 @@ jobs:
           git config user.name "opencode-ai-task[bot]"
           git config user.email "opencode-ai-task[bot]@users.noreply.github.com"
 
-      - name: Restore project toolchain caches
-        if: inputs.toolchain_profile != 'none'
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.npm
-            ${{ github.workspace }}/target
-          key: opencode-ai-task-${{ inputs.toolchain_profile }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock', '**/package-lock.json') }}
-          restore-keys: |
-            opencode-ai-task-${{ inputs.toolchain_profile }}-${{ runner.os }}-${{ runner.arch }}-
-
       - name: Re-check authorisation
         env:
           GH_TOKEN: ${{ github.token }}
@@ -318,31 +305,23 @@ jobs:
           rm -f "${PR_SUMMARY_FILE}"
           echo "Selected complexity ${COMPLEXITY}; approved model ${MODEL}."
 
+      - name: Set up consumer environment
+        if: inputs.setup
+        # This local action resolves from the caller's pinned target checkout.
+        # Treat the entire implementation runner as consumer-controlled after
+        # this point: it has no publication credential and no repository write
+        # permission. Validation and publication run on fresh trusted runners.
+        uses: ./.github/actions/setup-ai-task
+
       - name: Install pinned OpenCode
         run: |
           npm install -g --allow-scripts=@opencode/cli "@opencode/cli@${OPENCODE_CLI_VERSION}"
           opencode --version
 
-      - name: Provision trusted toolchain
-        if: inputs.toolchain_profile != 'none'
-        working-directory: ${{ github.workspace }}
-        env:
-          TOOLCHAIN_PROFILE: ${{ inputs.toolchain_profile }}
-        run: bash "${TRUSTED_SCRIPTS}/setup-toolchain.sh"
-
-      - name: Verify target web build
-        if: inputs.toolchain_profile == 'rudiment-web'
-        working-directory: ${{ github.workspace }}
-        run: |
-          npm ci
-          npm run build
-
       - name: Preflight workspace and tools
         # Fails closed before the agent starts when the working directory is
         # not the Git repository root or a required tool is missing.
         working-directory: ${{ github.workspace }}
-        env:
-          TOOLCHAIN_PROFILE: ${{ inputs.toolchain_profile }}
         run: bash "${TRUSTED_SCRIPTS}/preflight.sh"
 
       - name: Implement the task

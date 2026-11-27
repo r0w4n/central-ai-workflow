@@ -9,7 +9,6 @@
 #
 # Inputs (environment):
 #   GITHUB_WORKSPACE   runner workspace containing the checked-out repository
-#   TOOLCHAIN_PROFILE  optional toolchain profile whose tools must be present
 # Outputs: diagnostic logs only. Exits 1 on any missing prerequisite.
 
 set -euo pipefail
@@ -50,28 +49,5 @@ node --version
 npm --version
 opencode --version
 echo "::endgroup::"
-
-# --- Toolchain profile requirements --------------------------------------------
-case "${TOOLCHAIN_PROFILE:-none}" in
-  none) ;;
-  rudiment-web)
-    echo "::group::Rudiment web toolchain"
-    for tool in rustup rustc cargo trunk; do
-      require "${tool}"
-    done
-    rustc --version
-    cargo --version
-    trunk --version
-    targets="$(rustup target list --installed)" ||
-      fail "could not list the installed Rust targets"
-    grep -Fx 'wasm32-unknown-unknown' <<<"${targets}" >/dev/null ||
-      fail "the wasm32-unknown-unknown Rust target is not installed"
-    echo "wasm32-unknown-unknown target installed"
-    echo "::endgroup::"
-    ;;
-  *)
-    fail "unsupported toolchain profile: ${TOOLCHAIN_PROFILE}"
-    ;;
-esac
 
 echo "::notice::Preflight verified: the agent working directory is the Git repository root and all required tools are available."

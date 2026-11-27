@@ -26,9 +26,9 @@ authorise (read) -> implement (read + model secret) -> validate (read)
    under a temporary `automation/` directory that is removed before the agent
    starts. It proves the central checkout equals `job.workflow_sha`, snapshots
    the scripts before the agent starts, selects an approved model, optionally
-   provisions a centrally managed toolchain with dependency caching, and
-   verifies the environment (working directory, Git checkout, and required
-   tool versions) in a trusted preflight before giving the agent only
+   runs the consumer's `.github/actions/setup-ai-task` local action, and
+   verifies the central runtime (working directory, Git checkout, and required
+   orchestration tools) in a trusted preflight before giving the agent only
    `OPENCODE_API_KEY`. The output is a restricted patch artifact—never the
    working tree or `.git` directory.
 3. **Validate** starts on a fresh runner, verifies checksums and metadata,
@@ -63,14 +63,31 @@ the relevant QA before committing; normal target-repository PR workflows remain
 the authoritative merge gates. Project configuration cannot bypass central
 artifact validation or change the approved model allowlist.
 
-Callers that need the pinned Rust WASM/Trunk environment may opt into
-`toolchain_profile: rudiment-web`. The default is `none`. The profile installs
-the project-pinned Rust toolchain (honouring `rust-toolchain.toml` when
-present), the `wasm32-unknown-unknown` target, and pinned Trunk, then caches
-Cargo, npm, and build outputs and verifies `npm ci` and `npm run build` in the
-same workspace checkout OpenCode receives. Profiles execute only central setup
-scripts from the verified workflow revision; the reusable workflow never runs
-setup actions from the target checkout.
+Repositories that need environment preparation set `setup: true` and provide a
+local composite action at `.github/actions/setup-ai-task/action.yml`. The
+action may use normal GitHub Actions setup and cache mechanisms for any stack.
+Repositories that need no preparation omit the input (the default is `false`).
+The action should install dependencies, make required tools available through
+standard GitHub environment files, verify their versions, and report its cache
+and timing diagnostics. It should not perform a mandatory full application
+build: project validation remains the agent's responsibility and the target
+repository's pull-request checks remain the authoritative merge gates.
+
+Setup may restore reviewed caches, but it must not schedule post-job saves of
+paths the later agent can modify under a trusted/default-branch cache scope.
+Disable saves for the AI job or save immutable dependency data before the local
+action returns. Never cache credentials, model sessions, issue data, or agent
+state.
+
+The setup action comes from the consumer's pinned base revision and runs only
+in the implementation job. After it runs, the rest of that runner must be
+treated as consumer-controlled: a process can persist, alter tools or modify
+the workspace across later steps. Consequently the job has no repository write
+permission or publication credential. Validation and publication use fresh
+runners and never execute the consumer action. The model API key is necessarily
+used later in the same implementation job, so consumers must review their base
+setup action with the same care as any other code that runs alongside the
+agent.
 
 Publication defaults to a **draft** pull request. Callers may pass
 `draft: false` to publish the pull request ready for review; merging always
@@ -87,8 +104,9 @@ requests. Without App credentials the reusable workflow falls back to
 
 Before the agent starts, the implement job runs a trusted preflight that fails
 closed when `git rev-parse --show-toplevel` does not resolve to
-`$GITHUB_WORKSPACE`, or when a required tool (Git, Node, npm, OpenCode, or the
-profile's Rust/Trunk tooling) is missing. The authorise job preflights the
+`$GITHUB_WORKSPACE`, or when a tool required by central orchestration (Git,
+Node, npm, or OpenCode) is missing. Project-tool verification belongs in the
+consumer action. The authorise job preflights the
 repository's Actions settings that gate pull request publication.
 
 Required caller permissions are `contents: write`, `pull-requests: write`, and

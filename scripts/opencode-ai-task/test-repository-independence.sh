@@ -44,9 +44,10 @@ exercise_repo() {
 
 if exercise_repo frontend src/components/widget.ts; then ok "frontend-style repository validates"; else ko "frontend-style repository validates"; fi
 if exercise_repo backend service/internal/worker.go; then ok "backend-style repository validates"; else ko "backend-style repository validates"; fi
+if exercise_repo minimal README.md; then ok "minimal no-setup repository validates"; else ko "minimal no-setup repository validates"; fi
 
 workflow="$root/.github/workflows/opencode-ai-task.yml"
-if ! grep -q 'Rudiment repository' "$workflow" && grep -q 'working-directory: \${{ github.workspace }}' "$workflow"; then
+if grep -q 'working-directory: \${{ github.workspace }}' "$workflow"; then
   ok "workflow is repository-independent and pins the agent to the workspace checkout"
 else
   ko "workflow is repository-independent and pins the agent to the workspace checkout"

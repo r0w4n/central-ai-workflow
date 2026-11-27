@@ -25,11 +25,14 @@ artifact export, checksum and metadata integrity, protected paths, symlinks,
 submodules, traversal, malicious hooks and credential helpers, publication and
 orphan cleanup, failure notifications, diagnostic redaction, version drift,
 complexity/model selection, rejected models/configuration, central-versus-target
-checkout isolation, and two target repositories with different structures.
+checkout isolation, the optional consumer setup contract, the no-setup default,
+absence of project-specific production logic, and target repositories with
+different structures.
 
 Recent additions cover the workspace-root preflight (`test-preflight.sh`: the
-Git root must resolve to `$GITHUB_WORKSPACE`, missing tools and toolchain
-targets fail closed) and the publication-permission preflight
+Git root must resolve to `$GITHUB_WORKSPACE` and missing central tools fail
+closed), the generic local-action interface and its fresh-runner security
+boundary (`test-workflow.sh`), and the publication-permission preflight
 (`test-check-publish-permissions.sh`: read-only tokens and disabled
 Actions-created pull requests fail with remediation, unverifiable APIs warn
 and continue).
