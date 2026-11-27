@@ -68,12 +68,24 @@ if [ "$STATUS_DRY_RUN" = 1 ]; then
 fi
 
 if [ -z "$STATUS_COMMENT_ID" ]; then
-  STATUS_COMMENT_ID="$(gh api --paginate "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments" --jq ".[] | select(.body | contains(\"<!-- central-ai-revision comment=${COMMENT_ID} \")) | .id" | tail -n 1)"
+  if ! STATUS_IDS="$(gh api --paginate "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments" --jq ".[] | select(.body | contains(\"<!-- central-ai-revision comment=${COMMENT_ID} \")) | .id")"; then
+    echo "::error::Could not list PR #${PR_NUMBER} timeline comments (GET /issues/${PR_NUMBER}/comments); this trusted job needs pull-requests: read." >&2
+    exit 1
+  fi
+  STATUS_COMMENT_ID="$(tail -n 1 <<<"${STATUS_IDS}")"
 fi
 
 if [ -n "$STATUS_COMMENT_ID" ]; then
-  gh api -X PATCH "repos/${REPOSITORY}/issues/comments/${STATUS_COMMENT_ID}" -F body=@"$COMMENT_FILE" >/dev/null
+  require_numeric "$STATUS_COMMENT_ID" || { echo "::error::invalid status comment ID" >&2; exit 1; }
+  if ! gh api -X PATCH "repos/${REPOSITORY}/issues/comments/${STATUS_COMMENT_ID}" -F body=@"$COMMENT_FILE" >/dev/null; then
+    echo "::error::Could not update PR #${PR_NUMBER} revision status (PATCH /issues/comments/${STATUS_COMMENT_ID}); this trusted job needs pull-requests: write for PR timeline comments." >&2
+    exit 1
+  fi
 else
-  STATUS_COMMENT_ID="$(gh api -X POST "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments" -F body=@"$COMMENT_FILE" --jq '.id')"
+  if ! STATUS_COMMENT_ID="$(gh api -X POST "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments" -F body=@"$COMMENT_FILE" --jq '.id')"; then
+    echo "::error::Could not create PR #${PR_NUMBER} revision status (POST /issues/${PR_NUMBER}/comments); this trusted job needs pull-requests: write for PR timeline comments. Issues: write alone can return HTTP 403." >&2
+    exit 1
+  fi
+  require_numeric "$STATUS_COMMENT_ID" || { echo "::error::invalid created status comment ID" >&2; exit 1; }
 fi
 echo "status_comment_id=${STATUS_COMMENT_ID}"

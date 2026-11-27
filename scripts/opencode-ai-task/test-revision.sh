@@ -87,6 +87,66 @@ check "status marker keys the initiating comment" "grep -q 'comment=9001 status=
 check "completion links the resulting commit" "grep -q '222222222222' '$tmp/status.md'"
 check "completion says checks and previews retrigger" "grep -q 'checks and preview automation' '$tmp/status.md'"
 
+# Exercise comment creation, keyed updates, rejection, and permission failures
+# without a live API. The mock persists the comment so a retry must PATCH it.
+cat >"$tmp/bin/gh" <<'FAKEGH'
+#!/usr/bin/env bash
+set -euo pipefail
+method=GET
+for arg in "$@"; do
+  case "$arg" in POST|PATCH) method="$arg" ;; esac
+done
+case "$method" in
+  GET)
+    if [ "${FAKE_GH_DENY:-}" = GET ]; then echo 'HTTP 403' >&2; exit 1; fi
+    [ -f "$FAKE_GH_ID_FILE" ] && cat "$FAKE_GH_ID_FILE" || true
+    ;;
+  POST)
+    if [ "${FAKE_GH_DENY:-}" = POST ]; then echo 'HTTP 403' >&2; exit 1; fi
+    echo 12345 >"$FAKE_GH_ID_FILE"
+    cp "$FAKE_GH_COMMENT_FILE" "$FAKE_GH_SAVED_BODY"
+    echo 12345
+    ;;
+  PATCH)
+    if [ "${FAKE_GH_DENY:-}" = PATCH ]; then echo 'HTTP 403' >&2; exit 1; fi
+    cp "$FAKE_GH_COMMENT_FILE" "$FAKE_GH_SAVED_BODY"
+    echo PATCH >>"$FAKE_GH_LOG"
+    ;;
+esac
+FAKEGH
+chmod +x "$tmp/bin/gh"
+export PATH="$tmp/bin:$PATH" REPOSITORY=r0w4n/example PR_NUMBER=42 COMMENT_ID=9001
+export FAKE_GH_ID_FILE="$tmp/comment-id" FAKE_GH_SAVED_BODY="$tmp/saved-status.md"
+export FAKE_GH_COMMENT_FILE="$tmp/status.md" FAKE_GH_LOG="$tmp/gh-log"
+export COMMENT_FILE="$FAKE_GH_COMMENT_FILE" RUN_ID=77
+OUT="$(STATUS=accepted bash "${here}/revision-status.sh")"
+check "accepted revision creates one status comment" "grep -q '^status_comment_id=12345$' <<<\"$OUT\" && grep -q 'status=accepted' '$FAKE_GH_SAVED_BODY'"
+OUT="$(STATUS=failed bash "${here}/revision-status.sh")"
+PATCH_COUNT="$(wc -l < "$FAKE_GH_LOG")"
+check "failed revision updates the same status comment" "grep -q '^status_comment_id=12345$' <<<\"$OUT\" && grep -q 'status=failed' '$FAKE_GH_SAVED_BODY' && [ '$PATCH_COUNT' -eq 1 ]"
+OUT="$(STATUS=accepted bash "${here}/revision-status.sh")"
+PATCH_COUNT="$(wc -l < "$FAKE_GH_LOG")"
+check "manual retry reuses the comment ID" "grep -q '^status_comment_id=12345$' <<<\"$OUT\" && [ '$PATCH_COUNT' -eq 2 ]"
+OUT="$(STATUS=rejected REJECTION_REASON='invalid provenance' bash "${here}/revision-status.sh")"
+check "rejected revision records the reason on the same comment" "grep -q 'status=rejected' '$FAKE_GH_SAVED_BODY' && grep -q 'invalid provenance' '$FAKE_GH_SAVED_BODY'"
+rm "$FAKE_GH_ID_FILE"
+if FAKE_GH_DENY=GET STATUS=accepted bash "${here}/revision-status.sh" >"$tmp/out" 2>"$tmp/err"; then
+  ko "list permission failure stops before comment creation"
+else
+  check "list permission failure identifies GET and read scope" "grep -q 'GET /issues/42/comments.*pull-requests: read' '$tmp/err' && [ ! -f '$FAKE_GH_ID_FILE' ]"
+fi
+if FAKE_GH_DENY=POST STATUS=accepted bash "${here}/revision-status.sh" >"$tmp/out" 2>"$tmp/err"; then
+  ko "create permission failure stops before implementation"
+else
+  check "create permission failure identifies POST and write scope" "grep -q 'POST /issues/42/comments.*pull-requests: write' '$tmp/err' && [ ! -f '$FAKE_GH_ID_FILE' ]"
+fi
+echo 12345 >"$FAKE_GH_ID_FILE"
+if FAKE_GH_DENY=PATCH STATUS=accepted bash "${here}/revision-status.sh" >"$tmp/out" 2>"$tmp/err"; then
+  ko "update permission failure stops before implementation"
+else
+  check "update permission failure identifies PATCH and write scope" "grep -q 'PATCH /issues/comments/12345.*pull-requests: write' '$tmp/err'"
+fi
+
 echo
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

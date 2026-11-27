@@ -175,6 +175,15 @@ unauthorised humans are rejected. Feedback is untrusted task data and cannot
 change model policy, permissions, protected paths, credentials, or publication
 behavior.
 
+The trusted authorise and notify jobs need `pull-requests: write` to create or
+update the status comment on a PR timeline. GitHub's issue-comment REST
+documentation also lists `issues: write`, but a workflow token with only
+`issues: write` and `pull-requests: read` can receive HTTP 403 for a PR
+comment. The authorise job uses only `issues: read` for the linked issue; the
+notify job also needs `issues: write` for initial issue status. OpenCode never
+receives either job's GitHub token. Status failures identify the REST operation
+and required permission in the workflow log.
+
 Revision mode requires `APP_ID` and `APP_PRIVATE_KEY`, because GitHub suppresses
 new workflow runs for pushes made with `GITHUB_TOKEN`. Set
 `automation_pr_author` to the login that creates initial PRs, such as

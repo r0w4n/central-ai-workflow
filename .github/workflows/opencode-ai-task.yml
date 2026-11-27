@@ -106,8 +106,9 @@ jobs:
       )
     permissions:
       contents: read
-      issues: write
-      pull-requests: read
+      issues: read
+      # PR timeline comments need this scope in GitHub's current runtime.
+      pull-requests: write
     outputs:
       proceed: ${{ steps.decision.outputs.proceed }}
       reason: ${{ steps.decision.outputs.reason }}
@@ -257,11 +258,18 @@ jobs:
           ISSUE_NUMBER="$(sed -n 's/^issue_number=//p' <<<"${GATE_OUT}")"
           BRANCH="$(sed -n 's/^branch=//p' <<<"${GATE_OUT}")"
           BASE_SHA="$(sed -n 's/^base_sha=//p' <<<"${GATE_OUT}")"
-          STATUS_COMMENT_ID="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
-            --jq ".[] | select(.body | contains(\"<!-- central-ai-revision comment=${COMMENT_ID} \")) | .id" | tail -n 1)"
+          if ! STATUS_IDS="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --jq ".[] | select(.body | contains(\"<!-- central-ai-revision comment=${COMMENT_ID} \")) | .id")"; then
+            echo "::error::Could not list PR #${PR_NUMBER} timeline comments (GET /issues/${PR_NUMBER}/comments); the authorise job needs pull-requests: read." >&2
+            exit 1
+          fi
+          STATUS_COMMENT_ID="$(tail -n 1 <<<"${STATUS_IDS}")"
           EXISTING_STATUS=""
           if [ -n "${STATUS_COMMENT_ID}" ]; then
-            EXISTING_BODY="$(gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${STATUS_COMMENT_ID}" --jq '.body')"
+            if ! EXISTING_BODY="$(gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${STATUS_COMMENT_ID}" --jq '.body')"; then
+              echo "::error::Could not read revision status comment ${STATUS_COMMENT_ID} (GET /issues/comments/${STATUS_COMMENT_ID}); the authorise job needs pull-requests: read." >&2
+              exit 1
+            fi
             EXISTING_STATUS="$(sed -n 's/.*central-ai-revision .*status=\([^ ]*\).*/\1/p' <<<"${EXISTING_BODY}" | head -n 1)"
           fi
           if [ "${EXISTING_STATUS}" = completed ] || [ "${EXISTING_STATUS}" = rejected ]; then
@@ -737,6 +745,7 @@ jobs:
     if: always() && failure() && needs.authorise.outputs.proceed == 'true'
     permissions:
       issues: write
+      pull-requests: write
       contents: read
     env:
       TASK_MODE: ${{ needs.authorise.outputs.task_mode }}

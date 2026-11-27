@@ -103,6 +103,12 @@ if sed -n "${t_start},${t_end}p" "$workflow" | grep -q "contents: write"; then
 else
   ok "authorise job has no write permissions"
 fi
+if sed -n "${t_start},${t_end}p" "$workflow" | grep -q "pull-requests: write" &&
+  sed -n "${t_start},${t_end}p" "$workflow" | grep -q "issues: read"; then
+  ok "trusted authorise job can acknowledge PR revisions"
+else
+  ko "trusted authorise job can acknowledge PR revisions"
+fi
 pb="$(job_block implement)"; p_start=${pb%% *}; p_end=${pb##* }
 if sed -n "${p_start},${p_end}p" "$workflow" | grep -q "contents: write"; then
   ko "implement job has no write permissions"
@@ -125,6 +131,12 @@ if sed -n "${n_start},${n_end}p" "$workflow" | grep -q "issues: write"; then
   ok "publish job may update the trusted revision audit comment"
 else
   ko "publish job may update the trusted revision audit comment"
+fi
+db="$(job_block notify)"; d_start=${db%% *}; d_end=${db##* }
+if sed -n "${d_start},${d_end}p" "$workflow" | grep -q "pull-requests: write"; then
+  ok "trusted notify job can update PR revision status"
+else
+  ko "trusted notify job can update PR revision status"
 fi
 assert_in "$workflow" "top-level permissions declare the required caller grants" \
   "^permissions:\$"
