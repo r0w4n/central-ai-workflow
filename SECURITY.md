@@ -2,8 +2,9 @@
 
 ## Threat model
 
-Issue titles and bodies are untrusted and may contain prompt injection or shell
-metacharacters. The OpenCode process and everything it writes are untrusted. It
+Issue titles, PR descriptions, and comments are untrusted and may contain
+prompt injection or shell metacharacters. The OpenCode process and everything
+it writes are untrusted. It
 may attempt to replace validation scripts, create Git hooks, configure
 credential helpers, craft malicious patches, or expose credentials. The GitHub
 write token must never be available to the model process.
@@ -16,6 +17,13 @@ write token must never be available to the model process.
   actual `HEAD`. Implement snapshots these scripts before the agent runs.
 - Authorisation completes before any model or model secret is used. The
   `r0w4n` author/labeler policy and `ai-task` label are centrally owned.
+- Revision authorisation is repeated from GitHub API state inside the trusted
+  workflow. It binds an immutable comment ID to an authorised human, open
+  same-repository PR created by the configured automation bot, approved base,
+  `ai/issue-<n>` head, authorised linked issue, and pinned head SHA.
+- Comment feedback is never used for model selection and cannot alter workflow
+  permissions, secrets, protected paths, or publication policy. Status comments
+  do not begin with `/ai revise`, preventing bot-comment loops.
 - OpenCode receives `OPENCODE_API_KEY`, but no `GH_TOKEN`, `GITHUB_TOKEN`,
   persisted checkout credential, or repository write permission.
 - An optional consumer-owned `.github/actions/setup-ai-task` action runs only
@@ -45,10 +53,13 @@ write token must never be available to the model process.
   `scripts/opencode-ai-task/` path are protected. Symlinks, submodules, path
   traversal, malformed patches, merge commits, and metadata mismatches fail
   closed.
-- Publication holds narrowly scoped `contents: write` and
-  `pull-requests: write` permissions. It revalidates before authentication,
-  supplies its token through `GIT_ASKPASS`, pushes an explicit task-branch
-  refspec, creates only a draft PR, and removes an orphan branch on failure.
+- Publication holds narrowly scoped `contents: write`, `issues: write`, and
+  `pull-requests: write` permissions. It revalidates before authentication and
+  supplies its token through `GIT_ASKPASS`. Revision mode requires App
+  credentials and uses an exact expected-head lease after proving the new head
+  descends from the pinned head; a concurrent update therefore fails instead
+  of being overwritten. Initial mode creates one configured reviewable PR and
+  removes an orphan branch on failure.
   A preflight in the authorise stage checks the repository's Actions workflow
   permissions and fails closed before implementation when they would reject
   publication; when the API is unverifiable, it warns instead so manual
@@ -57,6 +68,10 @@ write token must never be available to the model process.
   failed redaction prevents upload.
 - Failure notification has issue-write permission only and is best-effort, so
   notification errors cannot conceal the original failure.
+- Native per-PR concurrency queues comments with cancellation disabled. A
+  comment-ID marker prevents duplicate implementation and records accepted,
+  completed, failed, or rejected status. Failed requests can be retried
+  explicitly; completed requests cannot be replayed.
 
 ## Central versus project policy
 

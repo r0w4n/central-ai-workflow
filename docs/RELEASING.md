@@ -13,8 +13,16 @@
 6. When migrating from a removed or changed interface, merge central first,
    record its reviewed `main` SHA, update the consumer PR from its provisional
    pin to that exact SHA, and document any required consumer-owned local action.
-7. Run caller dry-run, then a controlled live end-to-end test. Confirm the draft
-   PR records the expected central SHA, complexity, and model.
+7. Run caller dry-run, then a controlled live end-to-end test. Confirm the PR
+   records the expected central SHA, complexity, and model. Add an authorised
+   `/ai revise` comment and confirm a new commit lands on the same PR, normal
+   checks rerun, and any configured preview updates.
+8. For a coordinated Central/consumer revision release, open the Central PR
+   first. Pin the consumer PR provisionally to the reviewed Central PR head so
+   hosted caller validation can run. Merge Central, replace the consumer pin
+   with Central's reviewed `main` merge commit, rerun validation, then merge
+   the consumer. Never merge a consumer with only an unmerged provisional pin
+   or mutable tag/branch reference.
 
 Before merging a consumer migration that references an unmerged central branch,
 replace the provisional SHA with the final reviewed release commit and repeat

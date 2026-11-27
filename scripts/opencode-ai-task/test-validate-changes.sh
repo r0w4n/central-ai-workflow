@@ -67,7 +67,7 @@ run_validate() { # $1 = artifact dir; $2 = trusted repo; $3 = branch (default ai
 #   regenerated afterwards).
 make_meta() {
   cat >"$1/meta.json" <<EOF
-{"issue_number": "5", "branch": "ai/issue-5", "base_sha": "${BASE_SHA}", "head_sha": "deadbeef00000000000000000000000000000000", "commit_count": 1, "complexity": "medium", "model": "test", "automation_sha": "${AUTOMATION_SHA}", "validated": "false"}
+{"task_mode": "implementation", "issue_number": "5", "pr_number": 0, "comment_id": 0, "branch": "ai/issue-5", "base_sha": "${BASE_SHA}", "head_sha": "deadbeef00000000000000000000000000000000", "commit_count": 1, "complexity": "medium", "model": "test", "automation_sha": "${AUTOMATION_SHA}", "validated": "false"}
 EOF
 }
 

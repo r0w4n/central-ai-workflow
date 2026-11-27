@@ -1,0 +1,8 @@
+{
+  "number": 17,
+  "state": "open",
+  "title": "Improve the metronome",
+  "body": "Implement a responsive metronome control.",
+  "user": {"login": "r0w4n", "type": "User"},
+  "labels": [{"name": "ai-task"}]
+}

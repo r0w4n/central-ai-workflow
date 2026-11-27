@@ -1,8 +1,9 @@
 # Central AI Workflow
 
 `central-ai-workflow` provides a reusable, security-hardened GitHub Actions
-workflow that turns an authorised GitHub issue into a draft pull request using
-OpenCode. It was extracted from the reviewed Rudiment automation at commit
+workflow that turns an authorised GitHub issue into a pull request and applies
+authorised review feedback to that same PR using OpenCode. It was extracted
+from the reviewed Rudiment automation at commit
 `1722fe880607367c3dc694a3fc65d0a8e5b4cfa7`.
 
 The reusable workflow is [`.github/workflows/opencode-ai-task.yml`](.github/workflows/opencode-ai-task.yml).
@@ -13,14 +14,17 @@ repository at the exact SHA that defines the reusable job.
 ## Architecture and trust boundaries
 
 ```text
-authorise (read) -> implement (read + model secret) -> validate (read)
-                                                    -> publish (write)
-                         failures ------------------> notify (issue write)
+authorise (trusted API gate) -> implement (read + model secret) -> validate (read)
+                                                                  -> publish (write)
+                               failures --------------------------> notify (issue write)
 ```
 
-1. **Authorise** checks the issue author, label, labeler, open state, non-empty
-   body, non-PR status, and duplicate branch/PR state. The central default
-   policy requires `r0w4n` and `ai-task`; callers cannot relax it.
+1. **Authorise** supports two modes. Initial implementation checks the issue
+   author, label, labeler, open state, body, and duplicate state. Revision mode
+   re-reads the immutable feedback comment and verifies the human author, open
+   PR state, Central AI provenance, automation PR author, approved base,
+   same-repository `ai/issue-<n>` head, linked issue, and exact current head
+   SHA. The central policy requires `r0w4n` and `ai-task`.
 2. **Implement** checks out the caller at the runner workspace root, so
    `$GITHUB_WORKSPACE` is the Git repository root, and the central workflow
    under a temporary `automation/` directory that is removed before the agent
@@ -35,11 +39,13 @@ authorise (read) -> implement (read + model secret) -> validate (read)
    applies patches with hooks and credential helpers disabled, and rejects
    protected paths, traversal, symlinks, submodules, malformed patches, merge
    commits, or central-version drift.
-4. **Publish** starts on another fresh runner with the only GitHub content/PR
-   write permission. It re-runs validation, pushes only `ai/issue-<n>`, and
-   opens a draft PR. It never merges, force-pushes, or updates the default
-   branch. A failed PR creation removes the pushed branch.
-5. **Notify** can only comment on the source issue after a downstream failure.
+4. **Publish** starts on another fresh runner with GitHub write permission and
+   re-runs validation. Initial mode pushes only `ai/issue-<n>` and opens one
+   PR. Revision mode requires a GitHub App token, verifies the remote head still
+   equals the pinned SHA, then uses an exact lease to append commits to the
+   same branch. It never merges or updates the default branch.
+5. **Notify** updates one comment-ID-keyed revision audit comment or reports an
+   initial failure on the source issue.
 
 Untrusted issue text is written to a file and passed to OpenCode as data. It is
 never interpolated into executable shell. Agent-created Git metadata never
@@ -131,6 +137,37 @@ remediation instructions before implementation begins; if the API cannot
 verify the settings with the available token, it warns so the settings can be
 checked manually.
 
+## Review feedback and repeated revisions
+
+Consumers forward `issue_comment: created` events to the reusable workflow. On
+an open AI-generated PR, the authorised human writes:
+
+```text
+/ai revise Describe the focused correction to make.
+```
+
+Central AI acknowledges the request, queues it behind earlier feedback for the
+same PR, checks out the current PR head, and supplies the original issue,
+current PR description, Git history, and new feedback to OpenCode. It then
+uses the same fresh-runner artifact validation as initial implementation and
+appends the result to the existing branch. The App-authenticated push emits the
+normal `pull_request/synchronize` event, so consumer-owned checks and preview
+workflows rerun without Central knowing the consumer's toolchain.
+
+Each immutable comment ID is processed once. A single audit comment links the
+workflow run and resulting commit. Bot comments, ordinary comments, forks,
+unexpected branches/authors, changed heads, closed or merged PRs, and
+unauthorised humans are rejected. Feedback is untrusted task data and cannot
+change model policy, permissions, protected paths, credentials, or publication
+behavior.
+
+Revision mode requires `APP_ID` and `APP_PRIVATE_KEY`, because GitHub suppresses
+new workflow runs for pushes made with `GITHUB_TOKEN`. Set
+`automation_pr_author` to the login that creates initial PRs, such as
+`central-ai-publisher[bot]`. Retry a failed revision by manually dispatching
+the consumer workflow in `revision` mode with the existing PR number and the
+original comment ID; GitHub's **Re-run jobs** action is also accepted.
+
 ## Complexity and model selection
 
 ChatGPT-generated development specifications may include one strict metadata
@@ -158,12 +195,14 @@ The draft PR records complexity, model, and central automation SHA.
 
 ## Manual and live testing
 
-The caller exposes `workflow_dispatch` with a numeric `issue_number` and a
-`dry_run` flag that defaults to `true`. Dry-run performs authorisation and
-duplicate checks only. For a live end-to-end test, use an open issue authored
+The caller exposes manual modes for initial implementation and a failed
+revision retry. Dry-run performs authorisation and duplicate/idempotency checks
+only. For a live end-to-end test, use an open issue authored
 and labelled `ai-task` by `r0w4n`, set `dry_run: false`, then confirm that a
 draft `ai/issue-<n>` PR is created and that a second run is rejected as a
-duplicate. Close the scratch PR and delete its branch afterward.
+duplicate. Then add `/ai revise` feedback and confirm the same PR receives one
+descendant commit, its checks rerun, and a second feedback comment produces a
+second commit. Close the scratch PR and delete its branch afterward.
 
 ## Production settings
 

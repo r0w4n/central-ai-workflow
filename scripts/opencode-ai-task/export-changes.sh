@@ -29,12 +29,22 @@ BASE_SHA="${BASE_SHA:?BASE_SHA is required}"
 ARTIFACT_DIR="${ARTIFACT_DIR:?ARTIFACT_DIR is required}"
 COMPLEXITY="${COMPLEXITY:?COMPLEXITY is required}"
 AUTOMATION_SHA="${AUTOMATION_SHA:?AUTOMATION_SHA is required}"
+TASK_MODE="${TASK_MODE:-implementation}"
+PR_NUMBER="${PR_NUMBER:-0}"
+COMMENT_ID="${COMMENT_ID:-0}"
 
 fail() { echo "::error::$1" >&2; exit 1; }
 
 # The branch name must follow the automation's own convention.
 require_numeric "${BRANCH#ai/issue-}" ||
   fail "task branch '${BRANCH}' does not match ai/issue-<number>"
+case "${TASK_MODE}" in implementation|revision) ;; *) fail "invalid task mode" ;; esac
+require_numeric "${PR_NUMBER}" || fail "PR number is not numeric"
+require_numeric "${COMMENT_ID}" || fail "comment ID is not numeric"
+if [ "${TASK_MODE}" = revision ]; then
+  [ "${PR_NUMBER}" -gt 0 ] || fail "revision PR number is missing"
+  [ "${COMMENT_ID}" -gt 0 ] || fail "revision comment ID is missing"
+fi
 
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 [ "${CURRENT_BRANCH}" = "${BRANCH}" ] ||
@@ -80,7 +90,7 @@ fi
 
 HEAD_SHA="$(git rev-parse HEAD)"
 cat >"${ARTIFACT_DIR}/meta.json" <<EOF
-{"issue_number": "${BRANCH#ai/issue-}", "branch": "${BRANCH}", "base_sha": "${BASE_SHA}", "head_sha": "${HEAD_SHA}", "commit_count": ${COMMIT_COUNT}, "complexity": "${COMPLEXITY}", "model": "${MODEL:-}", "automation_sha": "${AUTOMATION_SHA}", "validated": "false"}
+{"task_mode": "${TASK_MODE}", "issue_number": "${BRANCH#ai/issue-}", "pr_number": ${PR_NUMBER}, "comment_id": ${COMMENT_ID}, "branch": "${BRANCH}", "base_sha": "${BASE_SHA}", "head_sha": "${HEAD_SHA}", "commit_count": ${COMMIT_COUNT}, "complexity": "${COMPLEXITY}", "model": "${MODEL:-}", "automation_sha": "${AUTOMATION_SHA}", "validated": "false"}
 EOF
 
 write_checksums "${ARTIFACT_DIR}"
