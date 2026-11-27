@@ -196,6 +196,20 @@ else
 fi
 assert_in "$workflow" "export runs from the trusted snapshot" \
   'bash "\$\{TRUSTED_SCRIPTS\}/export-changes.sh"'
+assert_in "$workflow" "failed agent work is checkpointed from the trusted snapshot" \
+  'bash "\$\{TRUSTED_SCRIPTS\}/checkpoint-on-failure.sh"'
+assert_in "$workflow" "agent execution leaves recovery time" \
+  'timeout-minutes: 35'
+assert_in "$workflow" "checkpoint runs after a failed agent step" \
+  "steps.agent.outcome == 'failure'"
+assert_in "$workflow" "artifact upload also runs after a checkpoint" \
+  "steps.checkpoint.outcome == 'success'"
+assert_in "$workflow" "validation requires an uploaded artifact" \
+  "needs.implement.outputs.artifact_ready == 'true'"
+assert_in "$workflow" "publication requires fresh-runner validation" \
+  "needs.validate.result == 'success'"
+assert_in "$workflow" "interrupted implementations publish only as drafts" \
+  "needs.implement.result != 'success' && 'true'"
 assert_in "$workflow" "diagnostics redacted from the trusted snapshot" \
   'bash "\$\{TRUSTED_SCRIPTS\}/redact.sh"'
 assert_in "$workflow" "validation runs from the trusted checkout" \
@@ -382,7 +396,7 @@ assert_in "$here/validate-changes.sh" \
 assert_not_in "$workflow" "no deploy actions" "deploy-pages"
 
 # --- Gate scripts executable ---------------------------------------------------
-for s in authorise.sh authorise-revision.sh dedup-check.sh revision-gate.sh revision-status.sh export-changes.sh validate-changes.sh apply-validated.sh redact.sh select-model.sh verify-trusted-checkout.sh; do
+for s in authorise.sh authorise-revision.sh dedup-check.sh revision-gate.sh revision-status.sh checkpoint-on-failure.sh export-changes.sh validate-changes.sh apply-validated.sh redact.sh select-model.sh verify-trusted-checkout.sh; do
   if [ -x "$here/$s" ]; then ok "gate script executable: $s"; else ko "gate script executable: $s"; fi
 done
 
