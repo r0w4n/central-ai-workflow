@@ -8,22 +8,33 @@ on:
   workflow_dispatch:
     inputs:
       task_mode:
-        description: Initial issue implementation or failed revision retry
+        description: Implementation, PR revision, or CI-failure remediation
         required: true
         default: implementation
         type: choice
-        options: [implementation, revision]
+        options: [implementation, revision, remediation]
       issue_number:
         description: Issue number (implementation mode)
         required: false
         type: string
       pr_number:
-        description: Existing PR number (revision retry)
+        description: Existing PR number (revision or remediation mode)
         required: false
         type: string
       comment_id:
-        description: Original /ai revise comment ID (revision retry)
+        description: Feedback comment ID (revision retry)
         required: false
+        type: string
+      remediation_event:
+        description: Remediation trigger outcome
+        required: false
+        default: checks-failed
+        type: choice
+        options: [checks-failed, checks-passed]
+      remediation_max_attempts:
+        description: Maximum remediation attempts per failure episode
+        required: false
+        default: '3'
         type: string
       dry_run:
         description: Run authorisation checks only
@@ -31,23 +42,33 @@ on:
         default: true
         type: boolean
 
+# actions: read lets the reusable workflow verify failing checks and read
+# their job logs in remediation mode; without it remediation is skipped.
 permissions:
   contents: write
   issues: write
   pull-requests: write
+  actions: read
 
 jobs:
   ai-task:
+    # The central workflow classifies every PR comment (explicit /ai revise,
+    # ordinary actionable feedback, bots and noise) and revalidates all
+    # authorisation itself; the caller only routes events.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issues' && github.event.label.name == 'ai-task') ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/ai revise'))
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request)
     uses: r0w4n/central-ai-workflow/.github/workflows/opencode-ai-task.yml@<CENTRAL_RELEASE_SHA>
     with:
       task_mode: ${{ github.event_name == 'issue_comment' && 'revision' || inputs.task_mode || 'implementation' }}
       issue_number: ${{ format('{0}', github.event_name == 'issues' && github.event.issue.number || inputs.issue_number) }}
       pr_number: ${{ format('{0}', github.event_name == 'issue_comment' && github.event.issue.number || inputs.pr_number) }}
       comment_id: ${{ format('{0}', github.event_name == 'issue_comment' && github.event.comment.id || inputs.comment_id) }}
+      remediation_event: ${{ inputs.remediation_event || 'checks-failed' }}
+      remediation_max_attempts: ${{ inputs.remediation_max_attempts || '3' }}
+      # Used to dispatch bounded automatic retries after a failed attempt.
+      caller_workflow: opencode-ai-task.yml
       dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
       # Set this to the App bot login when initial PRs use App publication.
       # automation_pr_author: your-app-slug[bot]
@@ -60,9 +81,9 @@ jobs:
       # draft: false
     secrets:
       OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
-      # Required for revision mode so branch pushes trigger pull_request
-      # checks and preview workflows. Also recommended for initial PRs.
-      # The App must be installed on this repository with contents: write and
-      # pull requests: write.
+      # Required for revision and remediation modes so branch pushes trigger
+      # pull_request checks and preview workflows. Also recommended for
+      # initial PRs. The App must be installed on this repository with
+      # contents: write and pull requests: write.
       APP_ID: ${{ secrets.APP_ID }}
       APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}

@@ -48,7 +48,7 @@ COMMENT_ID="${COMMENT_ID:-0}"
 fail() { echo "::error::$1" >&2; exit 1; }
 
 require_numeric "${ISSUE_NUMBER}" || fail "issue number is not numeric"
-case "${TASK_MODE}" in implementation|revision) ;; *) fail "invalid task mode" ;; esac
+case "${TASK_MODE}" in implementation|revision|remediation) ;; *) fail "invalid task mode" ;; esac
 require_numeric "${PR_NUMBER}" || fail "PR number is not numeric"
 require_numeric "${COMMENT_ID}" || fail "comment ID is not numeric"
 [ "${BRANCH}" = "ai/issue-${ISSUE_NUMBER}" ] ||

@@ -16,15 +16,34 @@ the four-stage patch-artifact architecture.
 - `revision-gate.sh` re-reads the PR, immutable comment, and linked issue;
   `authorise-revision.sh` applies the pure generic policy. The gate is repeated
   before agent execution, and publication performs a final head check.
+- `feedback-classify.sh` is a pure local classifier for PR comments. It maps
+  explicit `/ai revise` commands, ordinary actionable feedback, vague comments
+  and bare questions, malformed `/ai` commands, pleasantries, and automation
+  markers to acknowledgement classes so the gate never spawns an agent on noise
+  and never silently ignores a recognised command from the authorised user.
+- `remediation-gate.sh` re-reads the PR, linked issue, persistent remediation
+  state and the failing check runs of the current head;
+  `remediation-authorise.sh` applies the pure episode policy (attempt bounds,
+  deduplication, stale takeover, escalation). The gate is repeated before agent
+  execution, and publication performs the same final head check as revisions.
+- `remediation-status.sh` maintains one persistent remediation status comment
+  per PR carrying the episode marker, failing checks, attempt/limit, summaries
+  and workflow links, including the ready-for-review and human-intervention
+  outcomes.
+- `fetch-remediation-context.sh` lists failing check runs of the current head
+  and collects redacted, size-capped log excerpts as agent context. It is
+  read-only, degrades gracefully without `actions: read`, and treats CI logs
+  as untrusted data.
 - `revision-status.sh` maintains one audit comment per initiating comment ID.
   It records acceptance, completion/commit, rejection, or failure and gives
   the manual retry inputs without producing a bot-trigger loop.
 - `checkpoint-on-failure.sh` commits non-ignored work left by a failed or
   timed-out agent so the existing restricted exporter can preserve it. The
   checkpoint is still untrusted until fresh-runner validation succeeds.
-- `publish-pr.sh` uses the same validated artifact path for both modes. Initial
-  mode creates one PR; revision mode appends to its existing branch only when
-  the remote still equals the pinned base and never opens another PR.
+- `publish-pr.sh` uses the same validated artifact path for all modes. Initial
+  mode creates one PR; revision and remediation modes append to the existing
+  branch only when the remote still equals the pinned base and never open
+  another PR.
 
 Scripts that run after the model are either snapshotted before model execution
 or freshly checked out from the central commit identified by

@@ -38,12 +38,14 @@ fail() { echo "::error::$1" >&2; exit 1; }
 # The branch name must follow the automation's own convention.
 require_numeric "${BRANCH#ai/issue-}" ||
   fail "task branch '${BRANCH}' does not match ai/issue-<number>"
-case "${TASK_MODE}" in implementation|revision) ;; *) fail "invalid task mode" ;; esac
+case "${TASK_MODE}" in implementation|revision|remediation) ;; *) fail "invalid task mode" ;; esac
 require_numeric "${PR_NUMBER}" || fail "PR number is not numeric"
 require_numeric "${COMMENT_ID}" || fail "comment ID is not numeric"
-if [ "${TASK_MODE}" = revision ]; then
+if [ "${TASK_MODE}" != implementation ]; then
   [ "${PR_NUMBER}" -gt 0 ] || fail "revision PR number is missing"
-  [ "${COMMENT_ID}" -gt 0 ] || fail "revision comment ID is missing"
+  if [ "${TASK_MODE}" = revision ]; then
+    [ "${COMMENT_ID}" -gt 0 ] || fail "revision comment ID is missing"
+  fi
 fi
 
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"

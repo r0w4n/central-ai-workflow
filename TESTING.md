@@ -49,6 +49,22 @@ protected paths, failure status, and the absence of consumer build logic.
 local setup action, nested local action resolution, exact restoration of an
 older head's action files, and failure when the caller has no setup action.
 
+Feedback classification and automated remediation have dedicated coverage.
+`test-feedback-classify.sh` pins the classifier contract: explicit
+`/ai revise` commands, malformed commands such as `/ai assist` and bare
+`/ai revise`, ordinary actionable feedback, vague comments and bare questions
+(acknowledged rather than executed), pleasantries, emoji reactions, automation
+markers and blank comments (ignored silently). `test-remediation.sh` covers the
+remediation policy and its network gate: first-failure episodes, attempt
+accounting across pushed corrections, fresh episodes on unrelated heads,
+in-progress deduplication and self-recheck, stale takeover, configurable
+attempt limits, escalation after the limit, `checks-passed` episode closure,
+trigger-actor policy, fork refusal, and the persistent status comment marker
+and lifecycle (in progress, completed, failed, escalated, ready for review).
+`test-workflow.sh` additionally asserts that remediation is gated to router
+events, silent feedback is never answered publicly, and retry dispatch depends
+on the caller workflow input.
+
 Recent additions also cover the workspace-root preflight (`test-preflight.sh`: the
 Git root must resolve to `$GITHUB_WORKSPACE` and missing central tools fail
 closed), the generic local-action interface and its fresh-runner security

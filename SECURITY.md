@@ -20,7 +20,25 @@ write token must never be available to the model process.
 - Revision authorisation is repeated from GitHub API state inside the trusted
   workflow. It binds an immutable comment ID to an authorised human, open
   same-repository PR created by the configured automation bot, approved base,
-  `ai/issue-<n>` head, authorised linked issue, and pinned head SHA.
+  `ai/issue-<n>` head, authorised linked issue, and pinned head SHA. Ordinary
+  comments are classified by a pure, local classifier before anything is
+  executed; bot comments, automation status updates, pleasantries and
+  unauthorised feedback are ignored without spawning an agent.
+- Automatic CI remediation is bound to the PR head that actually exists when
+  the remediation runs: failing checks are read from the current head commit,
+  stale events for superseded commits are dropped, and publication reuses the
+  exact expected-head lease. Remediation attempts are counted per failure
+  episode in one persistent status comment, bounded by
+  `remediation_max_attempts`, and exhausting the limit escalates to a human
+  instead of looping. Failed attempts dispatch bounded retries only through
+  the caller's own workflow; the retry is reauthorised from scratch. Manual
+  revisions and automatic remediation share one per-PR concurrency queue.
+  Remediation never touches check configuration, and an escalated or
+  ready-for-review episode cannot be re-run automatically. Failing-check
+  verification requires `actions: read`; when check runs cannot be verified,
+  remediation is skipped rather than guessed. Remediation log excerpts are
+  untrusted CI output: they are redacted before entering the agent context and
+  withheld entirely when redaction cannot verify them.
 - Comment feedback is never used for model selection and cannot alter workflow
   permissions, secrets, protected paths, or publication policy. Status comments
   do not begin with `/ai revise`, preventing bot-comment loops.

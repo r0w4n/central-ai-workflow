@@ -165,6 +165,20 @@ an open AI-generated PR, the authorised human writes:
 /ai revise Describe the focused correction to make.
 ```
 
+The explicit command is retained for compatibility, but it is not required: any
+ordinary actionable comment from the authorised human on an AI-generated PR
+starts a revision the same way. Central AI classifies each comment locally:
+
+- explicit `/ai revise <feedback>` commands work exactly as before;
+- ordinary actionable feedback is accepted as a revision request;
+- recognised but malformed commands (for example `/ai assist` or a bare
+  `/ai revise`) get a public reply explaining the valid usage — they are never
+  silently ignored;
+- comments that look like a directive but are too vague (or bare questions) get
+  an acknowledgement asking for a concrete change;
+- bot comments, automation status updates, pleasantries and unauthorised
+  feedback are ignored silently.
+
 Central AI acknowledges the request, queues it behind earlier feedback for the
 same PR, checks out the current PR head, and supplies the original issue,
 current PR description, Git history, and new feedback to OpenCode. It then
@@ -174,11 +188,10 @@ normal `pull_request/synchronize` event, so consumer-owned checks and preview
 workflows rerun without Central knowing the consumer's toolchain.
 
 Each immutable comment ID is processed once. A single audit comment links the
-workflow run and resulting commit. Bot comments, ordinary comments, forks,
-unexpected branches/authors, changed heads, closed or merged PRs, and
-unauthorised humans are rejected. Feedback is untrusted task data and cannot
-change model policy, permissions, protected paths, credentials, or publication
-behavior.
+workflow run and resulting commit. Bot comments, forks, unexpected
+branches/authors, changed heads, closed or merged PRs, and unauthorised humans
+are rejected. Feedback is untrusted task data and cannot change model policy,
+permissions, protected paths, credentials, or publication behavior.
 
 The trusted authorise and notify jobs need `pull-requests: write` to create or
 update the status comment on a PR timeline. GitHub's issue-comment REST
@@ -195,6 +208,47 @@ new workflow runs for pushes made with `GITHUB_TOKEN`. Set
 `central-ai-publisher[bot]`. Retry a failed revision by manually dispatching
 the consumer workflow in `revision` mode with the existing PR number and the
 original comment ID; GitHub's **Re-run jobs** action is also accepted.
+
+## Automatic CI-failure remediation
+
+Remediation mode (`task_mode: remediation`) closes the CI loop without human
+intervention. The consumer owns the event wiring; Central owns the policy,
+state and execution:
+
+1. The consumer's router workflow listens for `workflow_run: completed` events
+   of the check workflows it cares about, resolves the AI-generated PR that
+   owns the head commit, waits for concurrent checks to quiesce, and dispatches
+   the task workflow with `task_mode: remediation`, the PR number, and
+   `remediation_event: checks-failed` (or `checks-passed` when everything is
+   green, which only closes the episode).
+2. Central revalidates everything authoritatively: the PR must be open,
+   same-repository, on an approved `ai/issue-<n>` branch, created by the
+   approved automation App with Central provenance, and attached to an open
+   labelled issue. Failing checks are re-read from the **current** head commit,
+   so stale events for superseded commits are dropped instead of remediating.
+3. A single persistent status comment per PR records the episode: current
+   status, failing checks, attempt number and limit, corrective summary,
+   workflow links and the final outcome.
+4. Remediation reuses the implementation pipeline: the agent receives the
+   original issue, the PR description, failing check names and redacted log
+   excerpts, must reproduce failures locally, fix root causes, and is
+   forbidden from weakening assertions or touching protected paths. The push
+   uses the same exact head-SHA lease as revisions and reruns consumer checks.
+5. Attempts are counted per failure episode (one episode spans the commits the
+   remediation itself pushes) and are bounded by `remediation_max_attempts`
+   (default 3). Failed attempts dispatch a bounded retry automatically; a
+   head that is not a descendant of the episode's last commit starts a fresh
+   episode; exhausting the limit escalates with actionable diagnostics and
+   stops the loop.
+6. Manual revisions and automatic remediation share one per-PR concurrency
+   queue, so competing agents are impossible. Nothing is ever auto-approved or
+   merged, and human-created PRs are never touched.
+
+Consumers need `actions: read` in the calling workflow's permissions so failing
+check runs and job logs can be verified; without it, remediation is skipped
+safely rather than guessed. `caller_workflow` (the consumer workflow file name)
+enables automatic bounded retries after a failed attempt. Log retrieval and
+episode-state parsing happen in Central; consumers never duplicate that logic.
 
 ## Complexity and model selection
 

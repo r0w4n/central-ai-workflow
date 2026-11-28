@@ -95,10 +95,14 @@ assert_in "$workflow" "revision mode is an explicit reusable interface" \
   "task_mode:"
 assert_in "$workflow" "PR and immutable comment inputs are declared" \
   "comment_id:"
-assert_in "$workflow" "revision commands are narrowly selected" \
-  "startsWith\(github\.event\.comment\.body, '/ai revise'\)"
-assert_in "$workflow" "revision state is revalidated before the agent" \
+assert_in "$workflow" "all PR comments reach the classifier gate" \
+  "github\.event_name == 'issue_comment' &&"
+assert_in "$workflow" "revision authorisation stays script-side" \
   'TRUSTED_SCRIPTS\}/revision-gate\.sh'
+assert_in "$workflow" "silently ignored feedback is never answered" \
+  '"\$\{ACK\}" = public \]'
+assert_in "$workflow" "remediation mode is gated to router events" \
+  "github\.event_name == 'workflow_run'"
 assert_in "$workflow" "comments cannot select the model" \
   'SPEC_FILE="\$\{ISSUE_SPEC_FILE\}"'
 assert_in "$workflow" "per-PR concurrency never cancels queued feedback" \
