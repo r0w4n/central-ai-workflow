@@ -66,7 +66,7 @@ while IFS=$'\t' read -r CHECK_NAME CHECK_ID CHECK_URL CHECK_CONCLUSION; do
       echo "Details: ${CHECK_URL}"
       echo
     fi
-    if LOG="$(gh api "repos/${REPOSITORY}/actions/jobs/${CHECK_ID}/logs" 2>/dev/null)" && [ -n "${LOG}" ]; then
+    if LOG="$(gh api "repos/${REPOSITORY}/actions/jobs/${CHECK_ID}/logs" 2>"${CONTEXT_DIR}/job-${CHECK_ID}-error.txt")" && [ -n "${LOG}" ]; then
       EXCERPT="$(printf '%s\n' "${LOG}" |
         grep -E -B2 -A8 '##\[(error|notice)\]|::error::|FAILED|Error:|error:' |
         head -n "${MAX_LOG_LINES}")"
@@ -78,7 +78,12 @@ while IFS=$'\t' read -r CHECK_NAME CHECK_ID CHECK_URL CHECK_CONCLUSION; do
       printf '%s\n' "${EXCERPT}" | sed 's/^/    /'
       echo
     else
-      echo "(log excerpts unavailable for this job; review the linked run)"
+      if [ -s "${CONTEXT_DIR}/job-${CHECK_ID}-error.txt" ]; then
+        echo "(job log excerpts could not be downloaded for this check run: $(head -c 300 "${CONTEXT_DIR}/job-${CHECK_ID}-error.txt" | tr '\n' ' '); review the linked run)"
+        rm -f "${CONTEXT_DIR}/job-${CHECK_ID}-error.txt"
+      else
+        echo "(no job logs were produced for this check run; review the linked run)"
+      fi
       echo
     fi
   } >>"${CONTEXT_FILE}"

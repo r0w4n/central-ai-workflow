@@ -41,7 +41,7 @@ check "both failing checks are listed" "grep -q '^failed_checks=CodeQL .rust.|Qu
 check "the passing check is not listed" "! grep -q 'failed_checks=.*fast' <<<\"$OUT\""
 check "log excerpts are indented as untrusted data" "grep -q '^    ##\[error\]' '$tmp/ctx/remediation-context.md'"
 check "error context is captured" "grep -q 'FAIL drag_test' '$tmp/ctx/remediation-context.md'"
-check "unavailable job logs degrade gracefully" "grep -q 'log excerpts unavailable' '$tmp/ctx/remediation-context.md'"
+check "unavailable job logs degrade gracefully with the API error" "grep -q 'could not be downloaded for this check run: HTTP 403: log access denied' '$tmp/ctx/remediation-context.md'"
 check "each failed check has a section" "[ \"\$(grep -c '^## Failed check:' '$tmp/ctx/remediation-context.md')\" = 2 ]"
 check "details links are included" "grep -q 'https://example.invalid/7001' '$tmp/ctx/remediation-context.md'"
 
