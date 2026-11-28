@@ -34,11 +34,14 @@ write token must never be available to the model process.
   the caller's own workflow; the retry is reauthorised from scratch. Manual
   revisions and automatic remediation share one per-PR concurrency queue.
   Remediation never touches check configuration, and an escalated or
-  ready-for-review episode cannot be re-run automatically. Failing-check
-  verification requires `actions: read`; when check runs cannot be verified,
-  remediation is skipped rather than guessed. Remediation log excerpts are
-  untrusted CI output: they are redacted before entering the agent context and
-  withheld entirely when redaction cannot verify them.
+  ready-for-review episode cannot be re-run automatically. Callers must grant
+  `actions: write`: the notify job statically requests it for bounded retry
+  dispatch, and a nested job may never request more than its caller grants
+  (write also covers failing-check verification and log reads). When check
+  runs cannot be verified, remediation is skipped rather than guessed.
+  Remediation log excerpts are untrusted CI output: they are redacted before
+  entering the agent context and withheld entirely when redaction cannot
+  verify them.
 - Comment feedback is never used for model selection and cannot alter workflow
   permissions, secrets, protected paths, or publication policy. Status comments
   do not begin with `/ai revise`, preventing bot-comment loops.

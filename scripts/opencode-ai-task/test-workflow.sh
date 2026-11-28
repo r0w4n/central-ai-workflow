@@ -109,46 +109,56 @@ assert_in "$workflow" "per-PR concurrency never cancels queued feedback" \
   "cancel-in-progress: false"
 
 # --- Job permissions -----------------------------------------------------------
+block_contains() { # $1 = job name, $2 = pattern; reads the whole block
+                   # first to avoid the sed|grep -q SIGPIPE race under
+                   # pipefail.
+  local range block
+  range="$(job_block "$1")"
+  block="$(sed -n "${range%% *},${range##* }p" "$workflow")"
+  grep -q "$2" <<<"$block"
+}
 tb="$(job_block authorise)"; t_start=${tb%% *}; t_end=${tb##* }
-if sed -n "${t_start},${t_end}p" "$workflow" | grep -q "contents: write"; then
+if block_contains authorise "contents: write"; then
   ko "authorise job has no write permissions"
 else
   ok "authorise job has no write permissions"
 fi
-if sed -n "${t_start},${t_end}p" "$workflow" | grep -q "pull-requests: write" &&
-  sed -n "${t_start},${t_end}p" "$workflow" | grep -q "issues: read"; then
+if block_contains authorise "pull-requests: write" && block_contains authorise "issues: read"; then
   ok "trusted authorise job can acknowledge PR revisions"
 else
   ko "trusted authorise job can acknowledge PR revisions"
 fi
-pb="$(job_block implement)"; p_start=${pb%% *}; p_end=${pb##* }
-if sed -n "${p_start},${p_end}p" "$workflow" | grep -q "contents: write"; then
+pb="$(job_block implement)"
+if block_contains implement "contents: write"; then
   ko "implement job has no write permissions"
 else
   ok "implement job has no write permissions"
 fi
-vb="$(job_block validate)"; v_start=${vb%% *}; v_end=${vb##* }
-if sed -n "${v_start},${v_end}p" "$workflow" | grep -qE "contents: write|pull-requests: write"; then
+if block_contains implement "actions: read"; then
+  ok "implement job can read failing-check runs and logs"
+else
+  ko "implement job can read failing-check runs and logs"
+fi
+vb="$(job_block validate)"
+if block_contains validate "contents: write|pull-requests: write"; then
   ko "validate job has write permissions"
 else
   ok "validate job has write permissions"
 fi
-nb="$(job_block publish)"; n_start=${nb%% *}; n_end=${nb##* }
-if sed -n "${n_start},${n_end}p" "$workflow" | grep -q "contents: write"; then
+if block_contains publish "contents: write"; then
   ok "publish job holds the write permissions"
 else
   ko "publish job holds the write permissions"
 fi
-if sed -n "${n_start},${n_end}p" "$workflow" | grep -q "issues: write"; then
+if block_contains publish "issues: write"; then
   ok "publish job may update the trusted revision audit comment"
 else
   ko "publish job may update the trusted revision audit comment"
 fi
-db="$(job_block notify)"; d_start=${db%% *}; d_end=${db##* }
-if sed -n "${d_start},${d_end}p" "$workflow" | grep -q "pull-requests: write"; then
-  ok "trusted notify job can update PR revision status"
+if block_contains notify "pull-requests: write" && block_contains notify "actions: write"; then
+  ok "trusted notify job can update PR status and dispatch retries"
 else
-  ko "trusted notify job can update PR revision status"
+  ko "trusted notify job can update PR status and dispatch retries"
 fi
 assert_in "$workflow" "top-level permissions declare the required caller grants" \
   "^permissions:\$"

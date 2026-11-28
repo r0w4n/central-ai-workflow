@@ -94,9 +94,9 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
-  # Required to read failing check runs and job logs in remediation mode.
-  # Callers that omit it degrade gracefully: remediation is skipped when
-  # failing checks cannot be verified.
+  # The notify job needs actions: write for bounded retry dispatch, so
+  # callers must grant actions: write (a nested job may never request more
+  # than its caller grants; write also covers the log reads below).
   actions: read
 
 # All task modes for the same PR or issue share one queue so manual revisions

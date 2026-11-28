@@ -244,10 +244,14 @@ state and execution:
    queue, so competing agents are impossible. Nothing is ever auto-approved or
    merged, and human-created PRs are never touched.
 
-Consumers need `actions: read` in the calling workflow's permissions so failing
-check runs and job logs can be verified; without it, remediation is skipped
-safely rather than guessed. `caller_workflow` (the consumer workflow file name)
-enables automatic bounded retries after a failed attempt. Log retrieval and
+Consumers need `actions: write` in the calling workflow's permissions. The
+reusable workflow's notify job statically requests `actions: write` to
+dispatch bounded remediation retries via `caller_workflow`, and a nested job
+may never request more than its caller grants — a caller that grants only
+`actions: read` (or omits the scope) makes the whole caller workflow invalid
+on every event. Write also covers failing-check verification and job-log
+reads; without verified failing checks, remediation is skipped rather than
+guessed. Log retrieval and
 episode-state parsing happen in Central; consumers never duplicate that logic.
 
 ## Complexity and model selection
