@@ -26,10 +26,10 @@ for caller in "$root/examples/generic-opencode-ai-task.yml" "$root/examples/cust
   else
     ko "$name routes PR comments to the central classifier"
   fi
-  if grep -q 'actions: read' "$caller"; then
-    ok "$name grants actions: read for remediation log retrieval"
+  if grep -q 'actions: write' "$caller"; then
+    ok "$name grants actions: write for retry dispatch and log retrieval"
   else
-    ko "$name grants actions: read for remediation log retrieval"
+    ko "$name grants actions: write for retry dispatch and log retrieval"
   fi
   if grep -q 'remediation_event:' "$caller" && grep -q 'remediation_max_attempts:' "$caller"; then
     ok "$name forwards remediation inputs"

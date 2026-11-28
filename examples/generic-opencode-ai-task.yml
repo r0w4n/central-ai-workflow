@@ -42,13 +42,14 @@ on:
         default: true
         type: boolean
 
-# actions: read lets the reusable workflow verify failing checks and read
-# their job logs in remediation mode; without it remediation is skipped.
+# actions: write is required in remediation mode: the reusable workflow's
+# notify job dispatches bounded retries, and a nested job may never request
+# more than its caller grants (write also covers the failed-check log reads).
 permissions:
   contents: write
   issues: write
   pull-requests: write
-  actions: read
+  actions: write
 
 jobs:
   ai-task:
