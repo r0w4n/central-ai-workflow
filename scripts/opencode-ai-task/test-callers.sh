@@ -21,10 +21,25 @@ for caller in "$root/examples/generic-opencode-ai-task.yml" "$root/examples/cust
   else
     ko "$name retains manual dry-run dispatch"
   fi
-  if grep -q 'issue_comment:' "$caller" && grep -q "startsWith(github.event.comment.body, '/ai revise')" "$caller"; then
-    ok "$name routes explicit PR revision commands"
+  if grep -q 'issue_comment:' "$caller" && grep -q "github.event_name == 'issue_comment' && github.event.issue.pull_request" "$caller"; then
+    ok "$name routes PR comments to the central classifier"
   else
-    ko "$name routes explicit PR revision commands"
+    ko "$name routes PR comments to the central classifier"
+  fi
+  if grep -q 'actions: read' "$caller"; then
+    ok "$name grants actions: read for remediation log retrieval"
+  else
+    ko "$name grants actions: read for remediation log retrieval"
+  fi
+  if grep -q 'remediation_event:' "$caller" && grep -q 'remediation_max_attempts:' "$caller"; then
+    ok "$name forwards remediation inputs"
+  else
+    ko "$name forwards remediation inputs"
+  fi
+  if grep -q 'caller_workflow:' "$caller"; then
+    ok "$name enables bounded remediation retries"
+  else
+    ko "$name enables bounded remediation retries"
   fi
   if grep -q 'uses: r0w4n/central-ai-workflow/.github/workflows/opencode-ai-task.yml@' "$caller"; then
     ok "$name calls the central reusable workflow"

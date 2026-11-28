@@ -51,12 +51,14 @@ PUBLICATION_RESULT_FILE="${PUBLICATION_RESULT_FILE:-${RUNNER_TEMP:-/tmp}/opencod
 fail() { echo "::error::$1" >&2; exit 1; }
 
 require_numeric "${ISSUE_NUMBER}" || fail "issue number is not numeric"
-case "${TASK_MODE}" in implementation|revision) ;; *) fail "TASK_MODE must be implementation or revision" ;; esac
+case "${TASK_MODE}" in implementation|revision|remediation) ;; *) fail "TASK_MODE must be implementation, revision or remediation" ;; esac
 require_numeric "${PR_NUMBER}" || fail "PR_NUMBER must be numeric"
 require_numeric "${COMMENT_ID}" || fail "COMMENT_ID must be numeric"
-if [ "${TASK_MODE}" = revision ]; then
+if [ "${TASK_MODE}" != implementation ]; then
   [ "${PR_NUMBER}" -gt 0 ] || fail "revision PR number is missing"
-  [ "${COMMENT_ID}" -gt 0 ] || fail "revision comment ID is missing"
+  if [ "${TASK_MODE}" = revision ]; then
+    [ "${COMMENT_ID}" -gt 0 ] || fail "revision comment ID is missing"
+  fi
 fi
 case "${PR_DRAFT}" in true|false) ;; *) fail "PR_DRAFT must be true or false" ;; esac
 case "${USING_APP_TOKEN}" in true|false) ;; *) fail "USING_APP_TOKEN must be true or false" ;; esac
@@ -155,7 +157,7 @@ cleanup() {
 trap cleanup EXIT
 
 # --- Push only the approved task branch --------------------------------------
-if [ "${TASK_MODE}" = revision ]; then
+if [ "${TASK_MODE}" != implementation ]; then
   # Revalidate the mutable PR state immediately before the authenticated push.
   PR_DATA="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")" || fail "could not re-read pull request #${PR_NUMBER}"
   [ "$(jq -r '.state // ""' <<<"${PR_DATA}")" = open ] || fail "pull request is no longer open"
@@ -181,7 +183,7 @@ else
 fi
 
 # --- Revisions stop here: update the existing PR, never create another --------
-if [ "${TASK_MODE}" = revision ]; then
+if [ "${TASK_MODE}" != implementation ]; then
   NEW_HEAD="$(git -C "${PUBLISH_WORK}" rev-parse HEAD)"
   {
     echo "commit_sha=${NEW_HEAD}"
