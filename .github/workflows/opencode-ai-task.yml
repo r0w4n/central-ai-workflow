@@ -287,93 +287,13 @@ jobs:
               REQUIRED_LABEL="${REQUIRED_LABEL}" \
               bash automation/scripts/opencode-ai-task/remediation-gate.sh)"
             echo "${GATE_OUT}"
-            PROCEED="$(sed -n 's/^proceed=\([a-z]*\).*/\1/p' <<<"${GATE_OUT}")"
-            REASON="$(sed -n 's/^proceed=[a-z]* reason=\(.*\) acknowledge=[a-z]* action=[a-z-]*/\1/p' <<<"${GATE_OUT}")"
-            ACK="$(sed -n 's/.*acknowledge=\([a-z]*\).*/\1/p' <<<"${GATE_OUT}" | head -n 1)"
-            ACTION="$(sed -n 's/.*action=\([a-z-]*\).*/\1/p' <<<"${GATE_OUT}" | head -n 1)"
-            ATTEMPT="$(sed -n 's/^attempt=\([0-9]*\)/\1/p' <<<"${GATE_OUT}")"
-            MAX_ATTEMPTS="$(sed -n 's/^max_attempts=//p' <<<"${GATE_OUT}")"
-            EPISODE_SHA="$(sed -n 's/^episode_sha=//p' <<<"${GATE_OUT}" | head -n 1)"
-            FAILED_CHECKS="$(sed -n 's/^failed_checks=//p' <<<"${GATE_OUT}" | head -n 1)"
-            STATUS_COMMENT_ID="$(sed -n 's/^status_comment_id=//p' <<<"${GATE_OUT}" | head -n 1)"
-            ISSUE_NUMBER="$(sed -n 's/^issue_number=//p' <<<"${GATE_OUT}" | head -n 1)"
-            BRANCH="$(sed -n 's/^branch=//p' <<<"${GATE_OUT}" | head -n 1)"
-            BASE_SHA="$(sed -n 's/^base_sha=//p' <<<"${GATE_OUT}" | head -n 1)"
-            [ -n "${REASON}" ] || REASON="${GATE_OUT}"
-
-            # Close an open episode when the checks now pass; this is the only
-            # remediation path that needs no agent run.
-            if [ "${PROCEED}" != true ] && [ "${ACTION}" = close-episode ]; then
-              if [ "${DRY_RUN}" != true ]; then
-                STATUS=ready-for-review EPISODE_SHA="${EPISODE_SHA}" ATTEMPT="${ATTEMPT}" \
-                  MAX_ATTEMPTS="${MAX_ATTEMPTS}" FAILED_CHECKS="${FAILED_CHECKS}" \
-                  STATUS_COMMENT_ID="${STATUS_COMMENT_ID}" RUN_ID="${RUN_ID}" RUN_URL="${RUN_URL}" \
-                  REPOSITORY="${GITHUB_REPOSITORY}" PR_NUMBER="${PR_NUMBER}" \
-                  bash automation/scripts/opencode-ai-task/remediation-status.sh || true
-              fi
-              PROCEED=false
-            fi
-            # Attempt limit reached: escalate with actionable diagnostics and
-            # stop the loop. Repeated skips stay silent (stale events, races).
-            if [ "${PROCEED}" != true ] && [ "${ACTION}" = escalate ]; then
-              if [ "${DRY_RUN}" != true ]; then
-                STATUS=escalated EPISODE_SHA="${EPISODE_SHA}" ATTEMPT="${ATTEMPT}" \
-                  MAX_ATTEMPTS="${MAX_ATTEMPTS}" FAILED_CHECKS="${FAILED_CHECKS}" \
-                  STATUS_COMMENT_ID="${STATUS_COMMENT_ID}" RUN_ID="${RUN_ID}" RUN_URL="${RUN_URL}" \
-                  REASON="${REASON}" \
-                  REPOSITORY="${GITHUB_REPOSITORY}" PR_NUMBER="${PR_NUMBER}" \
-                  bash automation/scripts/opencode-ai-task/remediation-status.sh || true
-              fi
-              PROCEED=false
-            fi
-            if [ "${PROCEED}" != true ]; then
-              {
-                echo "proceed=false"
-                echo "reason=${REASON}"
-                echo "acknowledge=${ACK}"
-                echo "task_mode=remediation"
-                echo "issue_number=${ISSUE_NUMBER}"
-                echo "pr_number=${PR_NUMBER}"
-                echo "comment_id=0"
-                echo "status_comment_id=${STATUS_COMMENT_ID}"
-                echo "branch=${BRANCH}"
-                echo "base_sha=${BASE_SHA}"
-                echo "action=${ACTION}"
-                echo "attempt=${ATTEMPT}"
-                echo "max_attempts=${MAX_ATTEMPTS}"
-                echo "episode_sha=${EPISODE_SHA}"
-                echo "failed_checks=${FAILED_CHECKS}"
-              } >>"${GITHUB_OUTPUT}"
-              exit 0
-            fi
-            if [ "${DRY_RUN}" = true ]; then
-              echo "::notice::Remediation authorised (dry run; no status comment or agent run). ${REASON}"
-              PROCEED=false
-            else
-              STATUS_OUT="$(STATUS=in_progress EPISODE_SHA="${EPISODE_SHA}" ATTEMPT="${ATTEMPT}" \
-                MAX_ATTEMPTS="${MAX_ATTEMPTS}" FAILED_CHECKS="${FAILED_CHECKS}" \
-                STATUS_COMMENT_ID="${STATUS_COMMENT_ID}" RUN_ID="${RUN_ID}" RUN_URL="${RUN_URL}" \
-                REPOSITORY="${GITHUB_REPOSITORY}" PR_NUMBER="${PR_NUMBER}" \
-                bash automation/scripts/opencode-ai-task/remediation-status.sh)"
-              STATUS_COMMENT_ID="$(sed -n 's/^status_comment_id=//p' <<<"${STATUS_OUT}")"
-            fi
-            {
-              echo "proceed=${PROCEED}"
-              echo "reason=${REASON}"
-              echo "acknowledge=${ACK}"
-              echo "task_mode=remediation"
-              echo "issue_number=${ISSUE_NUMBER}"
-              echo "pr_number=${PR_NUMBER}"
-              echo "comment_id=0"
-              echo "status_comment_id=${STATUS_COMMENT_ID}"
-              echo "branch=${BRANCH}"
-              echo "base_sha=${BASE_SHA}"
-              echo "action=${ACTION}"
-              echo "attempt=${ATTEMPT}"
-              echo "max_attempts=${MAX_ATTEMPTS}"
-              echo "episode_sha=${EPISODE_SHA}"
-              echo "failed_checks=${FAILED_CHECKS}"
-            } >>"${GITHUB_OUTPUT}"
+            # Episode-state transitions and the agent-run decision are owned
+            # by the decision script: a close-episode or escalate decision is
+            # announced on the PR and never reaches an agent run.
+            REMEDIATION_EVENT="${INPUT_REMEDIATION_EVENT}" DRY_RUN="${DRY_RUN}" \
+              RUN_ID="${RUN_ID}" RUN_URL="${RUN_URL}" \
+              REPOSITORY="${GITHUB_REPOSITORY}" PR_NUMBER="${PR_NUMBER}" \
+              bash automation/scripts/opencode-ai-task/remediation-decision.sh <<<"${GATE_OUT}"
             exit 0
           fi
 

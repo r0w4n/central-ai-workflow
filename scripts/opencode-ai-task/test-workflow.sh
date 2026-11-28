@@ -103,6 +103,10 @@ assert_in "$workflow" "silently ignored feedback is never answered" \
   '"\$\{ACK\}" = public \]'
 assert_in "$workflow" "remediation mode is gated to router events" \
   "github\.event_name == 'workflow_run'"
+assert_in "$workflow" "remediation episode transitions run from the decision script" \
+  'remediation-decision\.sh'
+assert_not_in "$workflow" "close-episode handling is not re-implemented inline in YAML" \
+  'PROCEED." != true . && .\$\{ACTION\}. = close-episode'
 assert_in "$workflow" "comments cannot select the model" \
   'SPEC_FILE="\$\{ISSUE_SPEC_FILE\}"'
 assert_in "$workflow" "per-PR concurrency never cancels queued feedback" \

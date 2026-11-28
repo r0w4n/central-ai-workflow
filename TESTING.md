@@ -61,6 +61,13 @@ in-progress deduplication and self-recheck, stale takeover, configurable
 attempt limits, escalation after the limit, `checks-passed` episode closure,
 trigger-actor policy, fork refusal, and the persistent status comment marker
 and lifecycle (in progress, completed, failed, escalated, ready for review).
+`test-remediation-context.sh` covers failing-check retrieval, redacted log
+excerpts, per-job degradation with explicit API diagnostics, and
+`test-remediation-decision.sh` covers the episode-state wiring: a
+close-episode decision updates the status comment to ready-for-review and
+never reaches an agent run, escalation stops the loop with the diagnosis,
+remediate decisions write the in-progress comment, and dry runs change
+nothing.
 `test-workflow.sh` additionally asserts that remediation is gated to router
 events, silent feedback is never answered publicly, and retry dispatch depends
 on the caller workflow input.

@@ -101,6 +101,12 @@ checks_list() {
       echo "#### Failing checks"
       echo
       checks_list
+      if [ -n "${REASON}" ]; then
+        echo
+        echo "#### Diagnosis"
+        echo
+        echo "${REASON}"
+      fi
       echo
       echo "#### Suggested next steps"
       echo
