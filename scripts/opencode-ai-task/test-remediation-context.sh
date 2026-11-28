@@ -45,17 +45,23 @@ check "unavailable job logs degrade gracefully" "grep -q 'log excerpts unavailab
 check "each failed check has a section" "[ \"\$(grep -c '^## Failed check:' '$tmp/ctx/remediation-context.md')\" = 2 ]"
 check "details links are included" "grep -q 'https://example.invalid/7001' '$tmp/ctx/remediation-context.md'"
 
-# A check-run listing failure must not fabricate failures.
+# A check-run listing API failure must not fabricate failures: it aborts with
+# an explicit diagnostic instead of degrading to an empty list.
 cat >"$tmp/bin/gh" <<'FAKEGH'
 #!/usr/bin/env bash
 echo 'HTTP 403' >&2
 exit 1
 FAKEGH
 chmod +x "$tmp/bin/gh"
-OUT="$(PATH="$tmp/bin:$PATH" REPOSITORY=r0w4n/example HEAD_SHA="${SHA}" CONTEXT_DIR="$tmp/ctx2" \
-  bash "${here}/fetch-remediation-context.sh")"
-check "unavailable check runs yield an empty failure list" "grep -q '^failed_checks=$' <<<\"$OUT\""
-check "the context notes the missing actions scope" "grep -q 'caller may lack' '$tmp/ctx2/remediation-context.md'"
+if OUT="$(PATH="$tmp/bin:$PATH" REPOSITORY=r0w4n/example HEAD_SHA="${SHA}" CONTEXT_DIR="$tmp/ctx2" \
+  bash "${here}/fetch-remediation-context.sh" 2>"$tmp/err.txt")"; then
+  ko "check-run API failures abort the context retrieval"
+else
+  ok "check-run API failures abort the context retrieval"
+fi
+check "the API error names the missing checks scope" "grep -q 'checks: read' '$tmp/err.txt'"
+check "the API error is a workflow error annotation" "grep -q '::error::' '$tmp/err.txt'"
+check "no fabricated context is written" "[ ! -f '$tmp/ctx2/remediation-context.md' ]"
 
 echo
 echo "Results: $pass passed, $fail failed"

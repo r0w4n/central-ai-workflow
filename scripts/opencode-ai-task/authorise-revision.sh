@@ -22,6 +22,9 @@ here="$(dirname "$0")"
 deny() { echo "proceed=false reason=$1 acknowledge=${2:-silent}"; exit 0; }
 allow() { echo "proceed=true reason=$1 acknowledge=public"; exit 0; }
 lowercase() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+# The same GitHub App may surface as '<slug>[bot]' (REST) or 'app/<slug>'
+# (GraphQL/PR-list projections); both identify the approved automation.
+normalise_login() { lowercase "$1" | sed -e 's|^app/||' -e 's|\[bot\]$||'; }
 
 comment_body="${GATE_COMMENT_BODY:-}"
 
@@ -35,7 +38,7 @@ if ! [[ "${GATE_PR_HEAD_BRANCH:-}" =~ ^ai/issue-([0-9]+)$ ]]; then
 fi
 [ "${BASH_REMATCH[1]}" = "${GATE_ISSUE_NUMBER:-}" ] || deny "pull request branch does not identify the linked issue"
 
-[ "$(lowercase "${GATE_PR_AUTHOR:-}")" = "$(lowercase "$expected_pr_author")" ] ||
+[ "$(normalise_login "${GATE_PR_AUTHOR:-}")" = "$(normalise_login "$expected_pr_author")" ] ||
   deny "pull request was not created by the approved automation"
 [ "${GATE_PR_AUTOMATION_MARKER:-false}" = true ] || deny "pull request lacks Central AI provenance"
 

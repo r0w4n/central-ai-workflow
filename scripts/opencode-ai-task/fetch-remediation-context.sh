@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 #
 # Retrieve failing CI checks and their job logs for one commit, as remediation
-# context for the OpenCode agent. Best effort and read-only: when logs cannot
-# be retrieved (for example the caller lacks 'actions: read'), the context
-# still names the failing checks and continues.
+# context for the OpenCode agent. Read-only. An API failure of the check-run
+# listing is reported explicitly (non-zero exit with a ::error diagnostic) so
+# a permission problem is never mistaken for a verified green or empty
+# result; per-job log retrieval remains best effort when individual logs are
+# unavailable.
 #
 # Treats all log content as untrusted data: excerpts are written to the
 # context file as indented code blocks and redacted via redact.sh before use.
@@ -33,11 +35,13 @@ fail() { echo "::error::$1" >&2; exit 1; }
 mkdir -p "${CONTEXT_DIR}"
 rm -f "${CONTEXT_FILE}"
 
-CHECK_RUNS="$(gh api --paginate "repos/${REPOSITORY}/commits/${HEAD_SHA}/check-runs?per_page=100" \
-  --jq '.check_runs[] | select(.status == "completed") | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "startup_failure" or .conclusion == "action_required") | [.name, .id, .details_url, .conclusion] | @tsv' 2>/dev/null)" ||
-  CHECK_RUNS=""
+CHECK_ROWS="$(gh api --paginate "repos/${REPOSITORY}/commits/${HEAD_SHA}/check-runs?per_page=100" \
+  --jq '.check_runs[] | select(.status == "completed") | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "startup_failure" or .conclusion == "action_required") | [.name, .id, .details_url, .conclusion] | @tsv')" || {
+  echo "::error::Could not list check runs for ${HEAD_SHA:0:12} (GET /repos/${REPOSITORY}/commits/<sha>/check-runs); failing checks cannot be verified. Grant the caller workflow 'checks: read' (job-log excerpts additionally need 'actions: read') and retry." >&2
+  exit 1
+}
 
-FAILED_CHECKS="$(printf '%s\n' "${CHECK_RUNS}" | awk -F'\t' '{print $1}' | sort -u | paste -sd'|' -)"
+FAILED_CHECKS="$(printf '%s\n' "${CHECK_ROWS}" | awk -F'\t' '{print $1}' | sort -u | paste -sd'|' -)"
 
 {
   echo "# Failed CI checks"
@@ -45,7 +49,7 @@ FAILED_CHECKS="$(printf '%s\n' "${CHECK_RUNS}" | awk -F'\t' '{print $1}' | sort 
   if [ -n "${FAILED_CHECKS}" ]; then
     printf '%s\n' "${FAILED_CHECKS}" | tr '|' '\n' | sed 's/^/- /'
   else
-    echo "(no failing check runs could be listed; the caller may lack 'actions: read')"
+    echo "(the check-run listing succeeded but recorded no failing checks)"
   fi
   echo
 } >"${CONTEXT_FILE}"
@@ -78,7 +82,7 @@ while IFS=$'\t' read -r CHECK_NAME CHECK_ID CHECK_URL CHECK_CONCLUSION; do
       echo
     fi
   } >>"${CONTEXT_FILE}"
-done <<<"${CHECK_RUNS}"
+done <<<"${CHECK_ROWS}"
 
 # Never let untrusted CI output carry credentials into the agent context.
 if ! bash "$(dirname "$0")/redact.sh" "${CONTEXT_DIR}"; then

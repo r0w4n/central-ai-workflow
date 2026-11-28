@@ -49,6 +49,10 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
+  # checks: read verifies failing checks (Checks API); actions: write covers
+  # job-log reads and lets Central dispatch bounded remediation retries. A
+  # called workflow may never elevate beyond these grants.
+  checks: read
   actions: write
 
 jobs:

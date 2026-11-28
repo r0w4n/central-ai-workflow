@@ -94,6 +94,13 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
+  # Remediation verifies failing checks through the Checks API, which needs
+  # the separate 'checks: read' GITHUB_TOKEN scope. Job-log excerpts
+  # additionally need 'actions: read'. Callers must grant both scopes; a
+  # called workflow may never elevate beyond its caller, and a missing grant
+  # makes remediation fail with an explicit API-error diagnostic instead of
+  # being silently skipped.
+  checks: read
   # The notify job needs actions: write for bounded retry dispatch, so
   # callers must grant actions: write (a nested job may never request more
   # than its caller grants; write also covers the log reads below).
@@ -145,6 +152,8 @@ jobs:
       issues: read
       # PR timeline comments need this scope in GitHub's current runtime.
       pull-requests: write
+      # Failing-check verification through the Checks API.
+      checks: read
       actions: read
     outputs:
       proceed: ${{ steps.decision.outputs.proceed }}
@@ -497,7 +506,10 @@ jobs:
       contents: read
       issues: read
       pull-requests: read
-      # Failing-check runs and job logs for remediation context.
+      # Rechecks the remediation gate in the agent workspace; failing-check
+      # verification needs the Checks API ('checks: read') and job logs for
+      # remediation context need 'actions: read'.
+      checks: read
       actions: read
     outputs:
       artifact_ready: ${{ steps.upload.outputs.artifact-id != '' }}
@@ -650,9 +662,17 @@ jobs:
             PR_DATA_FILE="${RUNNER_TEMP}/pull-request.json"
             gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" >"${PR_DATA_FILE}"
             CONTEXT_DIR="$(mktemp -d "${RUNNER_TEMP}/remediation-context.XXXXXX")"
-            CONTEXT_OUT="$(REPOSITORY="${GITHUB_REPOSITORY}" HEAD_SHA="${BASE_SHA}" CONTEXT_DIR="${CONTEXT_DIR}" \
-              bash "${TRUSTED_SCRIPTS}/fetch-remediation-context.sh")" || CONTEXT_OUT=""
-            CONTEXT_FILE="$(sed -n 's/^context_file=//p' <<<"${CONTEXT_OUT}" | head -n 1)"
+            CONTEXT_ERR_FILE="${RUNNER_TEMP}/remediation-context-error.txt"
+            # An API failure here is reported explicitly: the agent must not
+            # silently work without the failing-check details.
+            if CONTEXT_OUT="$(REPOSITORY="${GITHUB_REPOSITORY}" HEAD_SHA="${BASE_SHA}" CONTEXT_DIR="${CONTEXT_DIR}" \
+              bash "${TRUSTED_SCRIPTS}/fetch-remediation-context.sh" 2>"${CONTEXT_ERR_FILE}")"; then
+              CONTEXT_FILE="$(sed -n 's/^context_file=//p' <<<"${CONTEXT_OUT}" | head -n 1)"
+            else
+              CONTEXT_FILE=""
+              echo "::warning::Failing-check retrieval failed; the agent receives the check names only." >&2
+              cat "${CONTEXT_ERR_FILE}" >&2 || true
+            fi
             {
               echo "# Original issue"
               cat "${ISSUE_SPEC_FILE}"
@@ -664,7 +684,7 @@ jobs:
               if [ -n "${CONTEXT_FILE}" ] && [ -f "${CONTEXT_FILE}" ]; then
                 cat "${CONTEXT_FILE}"
               else
-                echo "The failed-check log excerpts could not be retrieved. Diagnose from the check names: ${FAILED_CHECKS:-unknown}."
+                echo "The failed-check log excerpts could not be retrieved (API error; see the workflow log for the diagnostic). Diagnose from the check names: ${FAILED_CHECKS:-unknown}."
               fi
             } >"${SPEC_FILE}"
           else

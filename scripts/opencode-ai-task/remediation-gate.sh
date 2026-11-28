@@ -15,6 +15,10 @@
 #   MAX_ATTEMPTS        optional attempt limit (default 3)
 #   CURRENT_RUN_ID      optional: this run's id (in-progress recheck)
 # Output: key=value lines; consumed by the authorise job's decision step.
+#
+# Check-run listing failures exit non-zero with an explicit ::error
+# diagnostic (the caller needs 'checks: read' and 'actions: read'); they are
+# never silently treated as "no failing checks".
 
 set -euo pipefail
 
@@ -91,13 +95,31 @@ done <<<"${COMMENTS}"
 [ -z "${STATE_COMMENT_ID}" ] && STATE_STATUS=none
 
 # --- Check runs of the current head -------------------------------------------
+# An API failure must be distinguishable from a verified empty or green
+# result: a 403/500 here aborts with an explicit diagnostic instead of being
+# silently converted into "no failed checks".
+CHECK_ROWS="$(gh api --paginate "repos/${REPOSITORY}/commits/${HEAD_SHA}/check-runs?per_page=100" \
+  --jq '.check_runs[] | [.status, (.conclusion // ""), (.name // "")] | @tsv')" || {
+  echo "::error::Could not list check runs for ${HEAD_SHA:0:12} (GET /repos/${REPOSITORY}/commits/<sha>/check-runs). Failing checks cannot be verified; grant the caller workflow 'checks: read' (job-log excerpts additionally need 'actions: read') and retry." >&2
+  exit 1
+}
 FAILED_CHECKS=""
-if CHECK_RUNS="$(gh api --paginate "repos/${REPOSITORY}/commits/${HEAD_SHA}/check-runs?per_page=100" --jq '.check_runs[] | select(.status == "completed") | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "startup_failure" or .conclusion == "action_required") | .name' 2>/dev/null)"; then
-  FAILED_CHECKS="$(printf '%s\n' "${CHECK_RUNS}" | sort -u | paste -sd'|' -)"
-else
-  echo "::warning::Could not list check runs for ${HEAD_SHA:0:12} (the caller needs 'actions: read'); cannot verify failing checks." >&2
-  FAILED_CHECKS=""
-fi
+COMPLETED_TOTAL=0
+PENDING_TOTAL=0
+while IFS=$'\t' read -r CR_STATUS CR_CONCLUSION CR_NAME; do
+  [ -n "${CR_STATUS}" ] || continue
+  if [ "${CR_STATUS}" != "completed" ]; then
+    PENDING_TOTAL=$((PENDING_TOTAL + 1))
+    continue
+  fi
+  COMPLETED_TOTAL=$((COMPLETED_TOTAL + 1))
+  case "${CR_CONCLUSION}" in
+    failure | timed_out | startup_failure | action_required)
+      FAILED_CHECKS+="${CR_NAME}"$'\n'
+      ;;
+  esac
+done <<<"${CHECK_ROWS}"
+FAILED_CHECKS="$(printf '%s' "${FAILED_CHECKS}" | sort -u | paste -sd'|' -)"
 
 # --- Relation of the current head to the episode's last known head ------------
 RELATION=none
@@ -138,6 +160,8 @@ DECISION="$(GATE_REMEDIATION_EVENT="${REMEDIATION_EVENT}" \
   GATE_EPISODE_UPDATED_AT="${STATE_UPDATED_AT}" \
   GATE_HEAD_SHA="${HEAD_SHA}" \
   GATE_HEAD_RELATION="${RELATION}" \
+  GATE_CHECK_TOTAL="${COMPLETED_TOTAL}" \
+  GATE_PENDING_CHECKS="${PENDING_TOTAL}" \
   GATE_MAX_ATTEMPTS="${MAX_ATTEMPTS}" \
   GATE_CURRENT_RUN_ID="${CURRENT_RUN_ID}" \
   bash "$(dirname "$0")/remediation-authorise.sh")"

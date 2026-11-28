@@ -31,6 +31,11 @@ for caller in "$root/examples/generic-opencode-ai-task.yml" "$root/examples/cust
   else
     ko "$name grants actions: write for retry dispatch and log retrieval"
   fi
+  if grep -q 'checks: read' "$caller" && grep -q 'actions: write' "$caller"; then
+    ok "$name grants checks: read and actions: write for failing-check verification and retries"
+  else
+    ko "$name grants checks: read and actions: write for failing-check verification and retries"
+  fi
   if grep -q 'remediation_event:' "$caller" && grep -q 'remediation_max_attempts:' "$caller"; then
     ok "$name forwards remediation inputs"
   else

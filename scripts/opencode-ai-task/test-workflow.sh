@@ -139,6 +139,16 @@ if block_contains implement "actions: read"; then
 else
   ko "implement job can read failing-check runs and logs"
 fi
+if block_contains authorise "checks: read" && block_contains authorise "actions: read"; then
+  ok "authorise job can verify failing checks through the Checks API"
+else
+  ko "authorise job can verify failing checks through the Checks API"
+fi
+if block_contains implement "checks: read"; then
+  ok "implement job can recheck failing checks through the Checks API"
+else
+  ko "implement job can recheck failing checks through the Checks API"
+fi
 vb="$(job_block validate)"
 if block_contains validate "contents: write|pull-requests: write"; then
   ko "validate job has write permissions"
@@ -165,8 +175,9 @@ assert_in "$workflow" "top-level permissions declare the required caller grants"
 [ "$(grep -c "^  contents: write" "$workflow")" -ge 1 ] &&
   [ "$(grep -c "^  pull-requests: write" "$workflow")" -ge 1 ] &&
   [ "$(grep -c "^  issues: write" "$workflow")" -ge 1 ] &&
-  ok "top-level permissions include contents, pull-requests, and issues write" ||
-  ko "top-level permissions include contents, pull-requests, and issues write"
+  [ "$(grep -c "^  checks: read" "$workflow")" -ge 1 ] &&
+  ok "top-level permissions include contents, pull-requests, and issues write plus checks read" ||
+  ko "top-level permissions include contents, pull-requests, and issues write plus checks read"
 assert_in "$here/check-publish-permissions.sh" \
   "permission preflight explains the manual repository setting" \
   "Allow GitHub Actions to create and approve pull requests"

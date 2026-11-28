@@ -14,6 +14,8 @@
 # Inputs (all environment):
 #   GATE_REMEDIATION_EVENT   checks-failed | checks-passed
 #   GATE_FAILED_CHECKS       pipe-separated failing check names (may be empty)
+#   GATE_CHECK_TOTAL         completed check runs verified on the current head
+#   GATE_PENDING_CHECKS      check runs still pending on the current head
 #   GATE_EPISODE_STATUS      none|in_progress|completed|failed|escalated|ready-for-review
 #   GATE_EPISODE_SHA         episode's first failing head commit
 #   GATE_EPISODE_LAST_HEAD   latest head commit known to the episode
@@ -37,6 +39,11 @@ set -euo pipefail
 
 lowercase() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 is_int() { case "${1:-}" in '' | *[!0-9]*) return 1 ;; *) return 0 ;; esac; }
+
+# The same GitHub App appears as '<slug>[bot]' (REST logins) and 'app/<slug>'
+# (GraphQL and some API projections). Both identify the approved automation;
+# anything else does not.
+normalise_login() { lowercase "$1" | sed -e 's|^app/||' -e 's|\[bot\]$||'; }
 
 MAX_ATTEMPTS="$(printf '%s' "${GATE_MAX_ATTEMPTS:-3}" | tr -d '[:space:]')"
 is_int "${MAX_ATTEMPTS}" || MAX_ATTEMPTS=3
@@ -82,7 +89,7 @@ if ! [[ "${GATE_PR_HEAD_BRANCH:-}" =~ ^ai/issue-([0-9]+)$ ]]; then
 fi
 [ "${BASH_REMATCH[1]}" = "${GATE_ISSUE_NUMBER:-}" ] ||
   deny "pull request branch does not identify the linked issue"
-[ "$(lowercase "${GATE_PR_AUTHOR:-}")" = "$(lowercase "${GATE_EXPECTED_PR_AUTHOR:-}")" ] ||
+[ "$(normalise_login "${GATE_PR_AUTHOR:-}")" = "$(normalise_login "${GATE_EXPECTED_PR_AUTHOR:-}")" ] ||
   deny "pull request was not created by the approved automation"
 [ "${GATE_PR_AUTOMATION_MARKER:-false}" = true ] || deny "pull request lacks Central AI provenance"
 
@@ -124,6 +131,15 @@ is_int "${UPDATED_AT}" || UPDATED_AT=0
 CURRENT_RUN="${GATE_CURRENT_RUN_ID:-}"
 EPISODE_RUN="${GATE_EPISODE_RUN_ID:-}"
 
+# Independent verification of the check-run state on the current head. A
+# close decision may only rely on a verified API result: pending checks and
+# an empty result (permission error upstream is refused by the gate) can
+# never produce a false ready-for-review status.
+CHECK_TOTAL="${GATE_CHECK_TOTAL:-0}"
+is_int "${CHECK_TOTAL}" || CHECK_TOTAL=0
+PENDING_CHECKS="${GATE_PENDING_CHECKS:-0}"
+is_int "${PENDING_CHECKS}" || PENDING_CHECKS=0
+
 SAME_HEAD=false
 if [ "${RELATION}" = identical ]; then
   SAME_HEAD=true
@@ -135,10 +151,21 @@ fi
 
 case "${GATE_REMEDIATION_EVENT}" in
   checks-passed)
+    # Close only on a verified green head: no failing checks, no pending
+    # checks, and at least one completed check run.
+    if [ -n "${GATE_FAILED_CHECKS:-}" ]; then
+      deny "failing checks are recorded on the head; the episode stays open" silent
+    fi
+    if [ "${PENDING_CHECKS}" -gt 0 ]; then
+      deny "${PENDING_CHECKS} checks are still pending; readiness cannot be verified yet" silent
+    fi
+    if [ "${CHECK_TOTAL}" -lt 1 ]; then
+      deny "no completed check runs were verified on the head; readiness cannot be verified" silent
+    fi
     case "${STATUS}" in
       none | escalated) deny "no open remediation episode to close" silent ;;
       ready-for-review) deny "remediation episode is already closed as ready for review" silent ;;
-      *) allow "all checks pass; remediation episode closed" public close-episode ;;
+      *) allow "all ${CHECK_TOTAL} completed checks pass; remediation episode closed" public close-episode ;;
     esac
     ;;
   checks-failed)

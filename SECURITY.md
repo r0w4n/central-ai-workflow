@@ -36,9 +36,13 @@ write token must never be available to the model process.
   Remediation never touches check configuration, and an escalated or
   ready-for-review episode cannot be re-run automatically. Callers must grant
   `actions: write`: the notify job statically requests it for bounded retry
-  dispatch, and a nested job may never request more than its caller grants
-  (write also covers failing-check verification and log reads). When check
-  runs cannot be verified, remediation is skipped rather than guessed.
+  dispatch, and a nested job may never request more than its caller grants.
+  Failing-check verification additionally requires `checks: read` (Checks
+  API) and `actions: read` (job logs); the gate aborts with an explicit API
+  diagnostic when check runs cannot be listed, so a permission failure is
+  never silently treated as a green or empty result. A ready-for-review
+  status is only published when the gate independently verifies that no
+  checks are pending and at least one completed check run passes.
   Remediation log excerpts are untrusted CI output: they are redacted before
   entering the agent context and withheld entirely when redaction cannot
   verify them.

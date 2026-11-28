@@ -217,10 +217,12 @@ state and execution:
 
 1. The consumer's router workflow listens for `workflow_run: completed` events
    of the check workflows it cares about, resolves the AI-generated PR that
-   owns the head commit, waits for concurrent checks to quiesce, and dispatches
-   the task workflow with `task_mode: remediation`, the PR number, and
-   `remediation_event: checks-failed` (or `checks-passed` when everything is
-   green, which only closes the episode).
+   owns the head commit (via `GET /repos/<owner>/<repo>/pulls?head=<owner>:<branch>`
+   — the owner, not the full repository name, and URL-encoded query
+   parameters), waits for concurrent checks to quiesce, and dispatches
+   the task workflow with `task_mode: remediation`, the PR number,
+   `remediation_run_id`, and `remediation_event: checks-failed` (or
+   `checks-passed` when everything is green, which only closes the episode).
 2. Central revalidates everything authoritatively: the PR must be open,
    same-repository, on an approved `ai/issue-<n>` branch, created by the
    approved automation App with Central provenance, and attached to an open
@@ -249,9 +251,11 @@ reusable workflow's notify job statically requests `actions: write` to
 dispatch bounded remediation retries via `caller_workflow`, and a nested job
 may never request more than its caller grants — a caller that grants only
 `actions: read` (or omits the scope) makes the whole caller workflow invalid
-on every event. Write also covers failing-check verification and job-log
-reads; without verified failing checks, remediation is skipped rather than
-guessed. Log retrieval and
+on every event. Failing-check verification goes through the Checks API, so
+callers must also grant `checks: read`; job-log excerpts additionally need
+`actions: read`. A missing grant makes the remediation gate fail with an
+explicit API-error diagnostic instead of silently skipping — remediation is
+never guessed from an unverifiable result. Log retrieval and
 episode-state parsing happen in Central; consumers never duplicate that logic.
 
 ## Complexity and model selection

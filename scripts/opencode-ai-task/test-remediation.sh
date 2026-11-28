@@ -37,6 +37,8 @@ export GATE_EPISODE_STATUS=none
 export GATE_EPISODE_ATTEMPT=0
 export GATE_HEAD_SHA=1111111111111111111111111111111111111111
 export GATE_HEAD_RELATION=none
+export GATE_CHECK_TOTAL=3
+export GATE_PENDING_CHECKS=0
 export GATE_MAX_ATTEMPTS=3
 export GATE_NOW=1000000
 export GATE_STALE_SECONDS=7200
@@ -54,12 +56,23 @@ GATE_TRIGGER_ACTOR='github-actions[bot]' GATE_FAILED_CHECKS='' OUT="$(run_gate)"
 check "stale events without verifiable failures are skipped" "grep -q '^proceed=false' <<<\"$OUT\""
 GATE_REMEDIATION_EVENT=checks-passed GATE_FAILED_CHECKS='' OUT="$(run_gate)"
 check "checks-passed without an episode is skipped" "grep -q 'action=skip' <<<\"$OUT\""
-GATE_REMEDIATION_EVENT=checks-passed GATE_EPISODE_STATUS=completed GATE_EPISODE_ATTEMPT=1 GATE_EPISODE_LAST_HEAD=2222222222222222222222222222222222222222 GATE_HEAD_RELATION=identical OUT="$(run_gate)"
-check "checks-passed closes the episode" "grep -q 'action=close-episode' <<<\"$OUT\""
+GATE_REMEDIATION_EVENT=checks-passed GATE_FAILED_CHECKS='' GATE_EPISODE_STATUS=in_progress GATE_EPISODE_ATTEMPT=1 GATE_EPISODE_LAST_HEAD=1111111111111111111111111111111111111111 GATE_HEAD_RELATION=identical OUT="$(run_gate)"
+check "checks-passed closes a verified green episode" "grep -q 'action=close-episode' <<<\"$OUT\""
 check "closing an episode is announced publicly" "grep -q 'acknowledge=public' <<<\"$OUT\""
+GATE_REMEDIATION_EVENT=checks-passed GATE_FAILED_CHECKS='' GATE_CHECK_TOTAL=0 OUT="$(run_gate)"
+check "checks-passed without verified completed checks does not close the episode" "grep -q 'readiness cannot be verified' <<<\"$OUT\""
+GATE_REMEDIATION_EVENT=checks-passed GATE_FAILED_CHECKS='' GATE_PENDING_CHECKS=2 OUT="$(run_gate)"
+check "checks-passed with pending checks does not close the episode" "grep -q 'still pending' <<<\"$OUT\""
+GATE_REMEDIATION_EVENT=checks-passed GATE_FAILED_CHECKS='Quality assurance / code-and-unit' OUT="$(run_gate)"
+check "checks-passed with recorded failures does not close the episode" "grep -q 'episode stays open' <<<\"$OUT\""
+GATE_REMEDIATION_EVENT=checks-failed GATE_CHECK_TOTAL=3 GATE_PENDING_CHECKS=0
 GATE_PR_AUTHOR=mallory OUT="$(run_gate)"
 check "PR provenance is enforced" "grep -q 'approved automation' <<<\"$OUT\""
-GATE_PR_AUTHOR='central-ai-publisher[bot]'
+GATE_PR_AUTHOR='app/central-ai-publisher' OUT="$(run_gate)"
+check "the app/ login form of the approved App is accepted" "grep -q '^proceed=true' <<<\"$OUT\""
+GATE_EXPECTED_PR_AUTHOR='app/central-ai-publisher' GATE_PR_AUTHOR='central-ai-publisher[bot]' OUT="$(run_gate)"
+check "the [bot] login form of the expected App is accepted" "grep -q '^proceed=true' <<<\"$OUT\""
+GATE_EXPECTED_PR_AUTHOR='central-ai-publisher[bot]' GATE_PR_AUTHOR='central-ai-publisher[bot]'
 
 # --- Attempt accounting per failure episode -----------------------------------
 GATE_REMEDIATION_EVENT=checks-failed
@@ -108,13 +121,21 @@ STATE_BODY='<!-- central-ai-remediation pr=42 episode=11111111111111111111111111
 
 ### Automatic remediation attempt failed'
 CHECK_RUNS_PAGE='{"total_count":2,"check_runs":[{"name":"Quality assurance / code-and-unit","id":7001,"status":"completed","conclusion":"failure","details_url":"https://example.invalid/7001"},{"name":"CodeQL (rust)","id":7002,"status":"completed","conclusion":"failure","details_url":"https://example.invalid/7002"},{"name":"fast","id":7003,"status":"completed","conclusion":"success","details_url":""}]}'
+# The stub emulates 'gh api --paginate <url> --jq <expr>' by applying the
+# caller's jq expression to a realistic API response.
 cat >"$tmp/bin/gh" <<FAKEGH
 #!/usr/bin/env bash
+jq_expr=""
+prev=""
+for arg in "\$@"; do
+  [ "\${prev}" = "--jq" ] && jq_expr="\${arg}"
+  prev="\${arg}"
+done
 case "\$*" in
-  *"pulls/42"*) cat "$fixtures/pull-request.json" ;;
-  *"issues/17") cat "$fixtures/issue.json" ;;
+  *"pulls/42"*) jq -r "\${jq_expr:-.}" "$fixtures/pull-request.json" ;;
+  *"issues/17"*) jq -r "\${jq_expr:-.}" "$fixtures/issue.json" ;;
   *"issues/42/comments"*) printf '%s\t%s\t%s\n' "${STATE_COMMENT_ID}" "2026-11-27T10:00:00Z" '${STATE_BODY}' ;;
-  *"check-runs"*) echo '${CHECK_RUNS_PAGE}' | jq -r '.check_runs[] | select(.status == "completed") | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "startup_failure" or .conclusion == "action_required") | .name' ;;
+  *"check-runs"*) printf '%s\n' '${CHECK_RUNS_PAGE}' | jq -r "\${jq_expr:-.}" ;;
   *"compare/"*) echo '{"status":"identical"}' ;;
   *) echo "unexpected gh call: \$*" >&2; exit 1 ;;
 esac
@@ -133,14 +154,107 @@ check "gate lists only failing checks" "grep -q '^failed_checks=CodeQL .rust.|Qu
 check "gate returns the state comment id" "grep -q '^status_comment_id=555$' <<<\"\$OUT\""
 check "gate repeats the failure episode" "grep -q '^proceed=true' <<<\"\$OUT\""
 
+# A check-run listing API failure is an explicit diagnostic, never a silent
+# "no failing checks".
+cat >"$tmp/bin/gh" <<'FAKEGH'
+#!/usr/bin/env bash
+case "$*" in
+  *"check-runs"*) echo 'HTTP 403: checks scope missing' >&2; exit 1 ;;
+  *"pulls/42"*) echo '{}' ;;
+  *"issues/42/comments"*) printf '' ;;
+  *) echo 'HTTP 500' >&2; exit 1 ;;
+esac
+FAKEGH
+chmod +x "$tmp/bin/gh"
+if OUT="$(PATH="$tmp/bin:$PATH" REPOSITORY=r0w4n/example PR_NUMBER=42 REMEDIATION_EVENT=checks-failed \
+  REQUIRED_AUTHOR=r0w4n EXPECTED_PR_AUTHOR='central-ai-publisher[bot]' \
+  APPROVED_BASE_BRANCH=main TRIGGER_ACTOR='github-actions[bot]' MAX_ATTEMPTS=3 \
+  bash "${here}/remediation-gate.sh" 2>"$tmp/err.txt")"; then
+  ko "check-run API failures abort the gate"
+else
+  ok "check-run API failures abort the gate"
+fi
+check "the API error names the missing scope" "grep -q 'checks: read' '$tmp/err.txt'"
+check "the API error is a workflow error annotation" "grep -q '::error::' '$tmp/err.txt'"
+
+# A genuinely empty check-run page is distinct from an API error: nothing can
+# be verified, so neither remediation nor episode closure proceeds.
+EMPTY_PAGE='{"total_count":0,"check_runs":[]}'
+cat >"$tmp/bin/gh" <<FAKEGH
+#!/usr/bin/env bash
+jq_expr=""
+prev=""
+for arg in "\$@"; do
+  [ "\${prev}" = "--jq" ] && jq_expr="\${arg}"
+  prev="\${arg}"
+done
+case "\$*" in
+  *"pulls/42"*) jq -r "\${jq_expr:-.}" "$fixtures/pull-request.json" ;;
+  *"issues/17"*) jq -r "\${jq_expr:-.}" "$fixtures/issue.json" ;;
+  *"issues/42/comments"*) printf '%s\t%s\t%s\n' "${STATE_COMMENT_ID}" "2026-11-27T10:00:00Z" '${STATE_BODY}' ;;
+  *"check-runs"*) echo '${EMPTY_PAGE}' | jq -r "\${jq_expr:-.}" ;;
+  *"compare/"*) echo '{"status":"identical"}' ;;
+  *) echo "unexpected gh call: \$*" >&2; exit 1 ;;
+esac
+FAKEGH
+chmod +x "$tmp/bin/gh"
+OUT="$(PATH="$tmp/bin:$PATH" REPOSITORY=r0w4n/example PR_NUMBER=42 REMEDIATION_EVENT=checks-failed \
+  REQUIRED_AUTHOR=r0w4n EXPECTED_PR_AUTHOR='central-ai-publisher[bot]' \
+  APPROVED_BASE_BRANCH=main TRIGGER_ACTOR='github-actions[bot]' MAX_ATTEMPTS=3 \
+  bash "${here}/remediation-gate.sh")"
+check "an empty verified check-run page blocks remediation" "grep -q 'no failed checks could be verified' <<<\"\$OUT\""
+OUT="$(PATH="$tmp/bin:$PATH" REPOSITORY=r0w4n/example PR_NUMBER=42 REMEDIATION_EVENT=checks-passed \
+  REQUIRED_AUTHOR=r0w4n EXPECTED_PR_AUTHOR='central-ai-publisher[bot]' \
+  APPROVED_BASE_BRANCH=main TRIGGER_ACTOR='github-actions[bot]' MAX_ATTEMPTS=3 \
+  bash "${here}/remediation-gate.sh")"
+check "an empty verified check-run page blocks episode closure" "grep -q 'action=skip' <<<\"\$OUT\""
+
+# Pending checks are visible to the gate and block a premature closure.
+PENDING_PAGE='{"total_count":2,"check_runs":[{"name":"Quality assurance / code-and-unit","id":7001,"status":"completed","conclusion":"failure","details_url":""},{"name":"Performance regression checks","id":7004,"status":"in_progress","conclusion":null,"details_url":""}]}'
+cat >"$tmp/bin/gh" <<FAKEGH
+#!/usr/bin/env bash
+jq_expr=""
+prev=""
+for arg in "\$@"; do
+  [ "\${prev}" = "--jq" ] && jq_expr="\${arg}"
+  prev="\${arg}"
+done
+case "\$*" in
+  *"pulls/42"*) jq -r "\${jq_expr:-.}" "$fixtures/pull-request.json" ;;
+  *"issues/17"*) jq -r "\${jq_expr:-.}" "$fixtures/issue.json" ;;
+  *"issues/42/comments"*) printf '%s\t%s\t%s\n' "${STATE_COMMENT_ID}" "2026-11-27T10:00:00Z" '${STATE_BODY}' ;;
+  *"check-runs"*) printf '%s\n' '${PENDING_PAGE}' | jq -r "\${jq_expr:-.}" ;;
+  *"compare/"*) echo '{"status":"identical"}' ;;
+  *) echo "unexpected gh call: \$*" >&2; exit 1 ;;
+esac
+FAKEGH
+chmod +x "$tmp/bin/gh"
+OUT="$(PATH="$tmp/bin:$PATH" REPOSITORY=r0w4n/example PR_NUMBER=42 REMEDIATION_EVENT=checks-passed \
+  REQUIRED_AUTHOR=r0w4n EXPECTED_PR_AUTHOR='central-ai-publisher[bot]' \
+  APPROVED_BASE_BRANCH=main TRIGGER_ACTOR='github-actions[bot]' MAX_ATTEMPTS=3 \
+  bash "${here}/remediation-gate.sh")"
+check "pending checks block episode closure" "grep -q 'action=skip' <<<\"\$OUT\""
+check "pending checks do not consume an attempt" "grep -q '^attempt=1$' <<<\"\$OUT\""
+OUT="$(PATH="$tmp/bin:$PATH" REPOSITORY=r0w4n/example PR_NUMBER=42 REMEDIATION_EVENT=checks-failed \
+  REQUIRED_AUTHOR=r0w4n EXPECTED_PR_AUTHOR='central-ai-publisher[bot]' \
+  APPROVED_BASE_BRANCH=main TRIGGER_ACTOR='github-actions[bot]' MAX_ATTEMPTS=3 \
+  bash "${here}/remediation-gate.sh")"
+check "a verified failure amid pending checks still remediates" "grep -q '^proceed=true' <<<\"\$OUT\""
+
 # A forked head never reaches the policy layer.
 cat >"$tmp/bin/gh" <<FAKEGH
 #!/usr/bin/env bash
+jq_expr=""
+prev=""
+for arg in "\$@"; do
+  [ "\${prev}" = "--jq" ] && jq_expr="\${arg}"
+  prev="\${arg}"
+done
 case "\$*" in
-  *"pulls/42"*) sed 's/r0w4n\/example/mallory\/fork/' "$fixtures/pull-request.json" ;;
-  *"issues/17") cat "$fixtures/issue.json" ;;
+  *"pulls/42"*) sed 's/r0w4n\/example/mallory\/fork/' "$fixtures/pull-request.json" | jq -r "\${jq_expr:-.}" ;;
+  *"issues/17"*) jq -r "\${jq_expr:-.}" "$fixtures/issue.json" ;;
   *"issues/42/comments"*) printf '%s\t%s\t%s\n' "${STATE_COMMENT_ID}" "2026-11-27T10:00:00Z" '${STATE_BODY}' ;;
-  *"check-runs"*) echo '${CHECK_RUNS_PAGE}' | jq -r '.check_runs[] | select(.status == "completed") | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "startup_failure" or .conclusion == "action_required") | .name' ;;
+  *"check-runs"*) printf '%s\n' '${CHECK_RUNS_PAGE}' | jq -r "\${jq_expr:-.}" ;;
   *) echo "unexpected gh call: \$*" >&2; exit 1 ;;
 esac
 FAKEGH
